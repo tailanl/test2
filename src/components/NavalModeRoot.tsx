@@ -18,21 +18,33 @@ export function NavalModeRoot() {
     createNavalScenario,
     advanceNavalTurn,
     currentTurn,
+    isCreatingScenario,
   } = useNavalStore();
 
   const [activeTab, setActiveTab] = useState<'fleet' | 'intel' | 'reports' | 'ai'>('fleet');
 
   if (!overlay && fleets.length === 0) {
     return (
-      <div className="p-4 text-gray-200 space-y-4">
-        <h2 className="text-xl font-bold text-amber-400">Naval Command Mode</h2>
-        <p>No naval scenario loaded. Create one to begin.</p>
-        <button
-          onClick={createNavalScenario}
-          className="px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white rounded"
-        >
-          Create Naval Scenario
-        </button>
+      <div className="flex items-center justify-center h-full bg-gray-950">
+        <div className="p-8 text-center space-y-4">
+          <h2 className="text-2xl font-bold text-amber-400">Naval Command</h2>
+          <p className="text-gray-400">Pacific Theater - Island Chains</p>
+          <p className="text-gray-600 text-sm">Generate a strategic map with island chains, ports, airfields, and shipping lanes.</p>
+          <button
+            onClick={createNavalScenario}
+            disabled={isCreatingScenario}
+            className="px-6 py-3 bg-blue-700 hover:bg-blue-600 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg font-semibold transition-colors"
+          >
+            {isCreatingScenario ? (
+              <span className="flex items-center gap-2">
+                <span className="w-5 h-5 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
+                Generating Map...
+              </span>
+            ) : (
+              'Create Naval Scenario'
+            )}
+          </button>
+        </div>
       </div>
     );
   }

@@ -57,6 +57,9 @@ interface NavalStoreState {
 
   battleLog: NavalBattleLogEvent[];
 
+  // Map generation
+  isCreatingScenario: boolean;
+
   // LLM Advisor
   aiConfig: AIProviderConfig;
   aiAdvice?: NavalLLMAdvice;
@@ -115,6 +118,8 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
   },
   battleLog: [],
 
+  isCreatingScenario: false,
+
   // LLM
   aiConfig: {
     kind: 'deepseek',
@@ -129,6 +134,8 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
   aiError: undefined,
 
   createNavalScenario: () => {
+    set({ isCreatingScenario: true });
+    try {
     // 独立地图生成 (Pacific island chain)
     const mapResult = generateNavalMap({
       width: 1024,
@@ -221,8 +228,12 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
       reports: [],
       currentTurn: 0,
       battleLog: [],
+      isCreatingScenario: false,
       navalMode: 'strategic',
     });
+    } catch (_e) {
+      set({ isCreatingScenario: false });
+    }
   },
 
   selectFleet: (fleetId: string) => {

@@ -336,6 +336,7 @@ export function generateNavalMap(config: Partial<NavalMapConfig> = {}): NavalMap
   // 4. 海水分类(从四边洪水填充 ocean, 参考 classifyWaterBodies)
   const isOcean = Array.from({ length: cfg.height }, () => Array(cfg.width).fill(false));
   const queue: [number, number][] = [];
+  let qHead = 0;
 
   // 四边入队
   for (let x = 0; x < cfg.width; x++) {
@@ -347,8 +348,8 @@ export function generateNavalMap(config: Partial<NavalMapConfig> = {}): NavalMap
     if (elevation[y][cfg.width - 1] <= cfg.seaLevel) { isOcean[y][cfg.width - 1] = true; queue.push([cfg.width - 1, y]); }
   }
 
-  while (queue.length > 0) {
-    const [cx, cy] = queue.shift()!;
+  while (qHead < queue.length) {
+    const [cx, cy] = queue[qHead++];
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         if (dx === 0 && dy === 0) continue;
@@ -365,6 +366,7 @@ export function generateNavalMap(config: Partial<NavalMapConfig> = {}): NavalMap
   // 5. 距离到最近岛屿的 BFS (用于分类)
   const distToIsland: number[][] = [];
   const islandQueue: [number, number, number][] = [];
+  let iqHead = 0;
 
   for (let y = 0; y < cfg.height; y++) {
     distToIsland[y] = [];
@@ -378,8 +380,8 @@ export function generateNavalMap(config: Partial<NavalMapConfig> = {}): NavalMap
     }
   }
 
-  while (islandQueue.length > 0) {
-    const [cx, cy, d] = islandQueue.shift()!;
+  while (iqHead < islandQueue.length) {
+    const [cx, cy, d] = islandQueue[iqHead++];
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         if (dx === 0 && dy === 0) continue;
