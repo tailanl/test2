@@ -279,14 +279,13 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
 
     const newTurn = currentTurn + 1;
 
-    // 1. Update ship motion (strategic scale: multiply movement by 8x for 3000-wide map)
+    // 1. Update ship motion (4x strategic movement for 3000-wide map)
     let updatedShipMap: Record<string, NavalShip> = {};
     for (const fleet of fleets) {
       for (const ship of fleet.ships) {
-        const moved = updateShipMotion(ship, 8); // 8x speed for strategic scale
-        // Apply strategic-scale movement
-        moved.position.x = ship.position.x + (moved.position.x - ship.position.x) * 8;
-        moved.position.y = ship.position.y + (moved.position.y - ship.position.y) * 8;
+        const moved = updateShipMotion(ship, 1);
+        moved.position.x = ship.position.x + (moved.position.x - ship.position.x) * 4;
+        moved.position.y = ship.position.y + (moved.position.y - ship.position.y) * 4;
         updatedShipMap[ship.id] = moved;
       }
     }

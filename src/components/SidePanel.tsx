@@ -56,12 +56,33 @@ export function SidePanel() {
         const ctx = buildCtx(s);
         const resp = await askLLM(ctx);
         addLog(`🤖 AI: ${resp.slice(0, 160)}`);
-        if (resp.includes('搜索') && pf) useNavalStore.setState(s => ({ airOperations: [...s.airOperations, { id: `s_${t}`, type: 'search', x: pf.position.globalX + 150, y: pf.position.globalY, heading: 45, fleetName: pf.name, status: '搜索中', aircraft: 4 }] }));
-        if (resp.includes('打击') && pf) useNavalStore.setState(s => ({ airOperations: [...s.airOperations, { id: `st_${t}`, type: 'strike', x: pf.position.globalX + 80, y: pf.position.globalY + 50, heading: 60, fleetName: pf.name, status: '进攻中', aircraft: 6 }] }));
+
+        // 区域搜索：扇形放出多个搜索机组
+        if ((resp.includes('搜索') || resp.includes('侦察')) && pf) {
+          const dirs = parseSearchDir(resp);
+          dirs.forEach((heading, i) => {
+            useNavalStore.setState(s2 => ({
+              airOperations: [...s2.airOperations, {
+                id: `s_${t}_${i}`, type: 'search', aircraft: 2,
+                x: pf.position.globalX + 40, y: pf.position.globalY + (i - dirs.length / 2) * 15,
+                heading, fleetName: pf.name, status: '搜索中',
+              }]
+            }));
+          });
+          addLog(`  ✈️ 扇形搜索: ${dirs.length}组 × ${dirs.map(d => `${d}°`).join('/')}`);
+        }
+        if ((resp.includes('打击') || resp.includes('攻击')) && pf) {
+          useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations, { id: `st_${t}`, type: 'strike', x: pf.position.globalX + 60, y: pf.position.globalY + 40, heading: 50, fleetName: pf.name, status: '进攻中', aircraft: 6 }] }));
+        }
       } catch { addLog('🤖 AI离线'); }
 
-      const ao2 = useNavalStore.getState().airOperations.map(a => ({ ...a, x: a.x + 20, y: a.y + 12, status: a.status }));
-      useNavalStore.setState({ airOperations: ao2.slice(-15) });
+      // 飞机快速移动(80km vs 船20km)
+      const ao2 = useNavalStore.getState().airOperations.map(a => ({
+        ...a,
+        x: a.x + 40, y: a.y + 25,
+        status: a.x > Math.max(pf?.position.globalX || 0, (fleets.find(f2 => f2.faction==='enemy')?.position.globalX || 1500)) + 300 ? '返航中' : a.status,
+      }));
+      useNavalStore.setState({ airOperations: ao2.filter(a => a.x < 2800 && a.y < 1800).slice(-20) });
 
       advanceNavalTurn();
       await sleep(50);
@@ -233,3 +254,18 @@ async function askLLM(ctx: string) {
 }
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+
+function parseSearchDir(resp: string): number[] {
+  const lower = resp.toLowerCase();
+  // Fan-shaped search in multiple directions
+  if (lower.includes('ne') || lower.includes('东北')) return [30, 45, 60, 75];
+  if (lower.includes('nw') || lower.includes('西北')) return [300, 315, 330, 345];
+  if (lower.includes('se') || lower.includes('东南')) return [120, 135, 150, 165];
+  if (lower.includes('sw') || lower.includes('西南')) return [210, 225, 240, 255];
+  if (lower.includes('n') || lower.includes('北')) return [345, 0, 15, 30];
+  if (lower.includes('s') || lower.includes('南')) return [165, 180, 195, 210];
+  if (lower.includes('e') || lower.includes('东')) return [60, 75, 90, 105, 120];
+  if (lower.includes('w') || lower.includes('西')) return [240, 255, 270, 285, 300];
+  // Default: all-around search
+  return [0, 45, 90, 135, 180, 225, 270, 315];
+}

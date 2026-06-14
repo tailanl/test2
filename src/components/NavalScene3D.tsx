@@ -23,7 +23,7 @@ const StratMap = React.memo(function StratMap() {
   const islands = useNavalStore(s => s.islands);
   if (!ov) return null;
   const { cx, cz, W, H } = useCoords();
-  const step = 20;
+  const step = 16;
 
   const tiles = useMemo(() => {
     const t: React.ReactNode[] = [];
