@@ -97,9 +97,9 @@ export function SidePanel() {
           let moveDir = 0; let moveDist = 0;
 
           // 解析LLM的移动命令
-          if (resp.includes('拦截') || resp.includes('追击') || resp.includes('接近')) moveDist = 60;
-          else if (resp.includes('撤退') || resp.includes('撤离') || resp.includes('退避')) moveDist = -40;
-          else if (resp.includes('机动') || resp.includes('前进') || resp.includes('移动')) moveDist = 40;
+          if (resp.includes('拦截') || resp.includes('追击') || resp.includes('接近')) moveDist = 25;
+          else if (resp.includes('撤退') || resp.includes('撤离') || resp.includes('退避')) moveDist = -15;
+          else if (resp.includes('机动') || resp.includes('前进') || resp.includes('移动')) moveDist = 15;
 
           // 方向
           if (resp.includes('东北') || resp.includes('NE')) moveDir = 45;
@@ -139,8 +139,8 @@ export function SidePanel() {
           const edx = pf.position.globalX - ef2.position.globalX;
           const edy = pf.position.globalY - ef2.position.globalY;
           const edist = Math.sqrt(edx*edx + edy*edy);
-          if (edist > 50) {
-            const moveStep = Math.min(30, edist * 0.3);
+          if (edist > 80) {
+            const moveStep = Math.min(20, edist * 0.15);
             ef2.position.globalX += Math.round(edx / edist * moveStep);
             ef2.position.globalY += Math.round(edy / edist * moveStep);
             for (const sh of ef2.ships) {
@@ -151,13 +151,13 @@ export function SidePanel() {
         }
       } catch { addLog('🤖 AI离线'); }
 
-      // 飞机按航向移动 (heading决定方向, 55格/回合)
+      // 飞机移动: 30格/回合 (≈150km/h巡航, 1格=5km)
       const ao2 = useNavalStore.getState().airOperations.map(a => {
         const rad = a.heading * Math.PI / 180;
         return {
           ...a,
-          x: a.x + Math.cos(rad) * 55,
-          y: a.y + Math.sin(rad) * 55,
+          x: a.x + Math.cos(rad) * 30,
+          y: a.y + Math.sin(rad) * 30,
           status: a.x > Math.max(pf?.position.globalX || 0, (fleets.find(f2 => f2.faction === 'enemy')?.position.globalX || 1500)) + 300 ? '返航中' : a.status,
         };
       });
@@ -215,7 +215,7 @@ export function SidePanel() {
         <div className="text-6xl">⚓</div>
         <h1 className="text-2xl font-black text-white text-center tracking-widest">太平洋<br/>舰队司令部</h1>
         <div className="h-0.5 w-20 bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
-        <p className="text-xs text-slate-400 text-center leading-relaxed">战略图 3000×2000<br/>12条岛链 · 港口 · 机场<br/>AI 自动驾驶战役</p>
+        <p className="text-xs text-slate-400 text-center leading-relaxed">战略图 3000×2000 · 1格≈5km<br/>16个岛链 · 美东日西 · 航母航空战<br/>每回合舰船≈15-20格(75-100km)</p>
         <button onClick={createScenario} disabled={isCreating}
           className="w-full py-3.5 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-700 text-white font-bold rounded-lg text-base transition-colors">
           {isCreating ? '正在生成太平洋...' : '⚡ 部署舰队'}

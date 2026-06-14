@@ -296,8 +296,8 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
     for (const fleet of fleets) {
       for (const ship of fleet.ships) {
         const moved = updateShipMotion(ship, 1);
-        moved.position.x = ship.position.x + (moved.position.x - ship.position.x) * 5;
-        moved.position.y = ship.position.y + (moved.position.y - ship.position.y) * 5;
+        moved.position.x = ship.position.x + (moved.position.x - ship.position.x) * 2;
+        moved.position.y = ship.position.y + (moved.position.y - ship.position.y) * 2;
         updatedShipMap[ship.id] = moved;
       }
     }
