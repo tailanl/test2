@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, Text, Billboard } from '@react-three/drei';
-import * as THREE from 'three';
+import { Canvas } from '@react-three/fiber';
+import { OrbitControls, Text } from '@react-three/drei';
 import { useNavalStore } from '@/store/naval-store';
 
 const S = 0.07;
@@ -18,63 +17,13 @@ function useCoords() {
   }, [ov]);
 }
 
-function IslandLabels() {
-  const islands = useNavalStore(s => s.islands);
-  const { cx, cz } = useCoords();
-  const { camera } = useThree();
-  const camDist = camera.position.length();
-  const showLabels = camDist < 120; // Only show labels when zoomed in
-
-  if (!showLabels) return null;
-
-  return (
-    <>
-      {islands.map(i => {
-        const ix = tx(i.x, cx), iz = tz(i.y, cz);
-        const distToCam = Math.sqrt(
-          (ix - camera.position.x) ** 2 + (iz - camera.position.z) ** 2
-        );
-        if (distToCam > 80 || i.radius < 20) return null;
-        return (
-          <Billboard><Text key={`in_${i.name}`} position={[ix, 2.5, iz]} fontSize={1.5} color="#e2e8f0" anchorX="center" anchorY="middle" outlineWidth={0.15} outlineColor="#000" fontWeight="bold">
-            {i.name}
-          </Text></Billboard>
-        );
-      })}
-    </>
-  );
-}
-
-function FacilityLabels() {
-  const facs = useNavalStore(s => s.facilities);
-  const { cx, cz } = useCoords();
-  const { camera } = useThree();
-  const camDist = camera.position.length();
-  if (camDist > 100) return null;
-
-  return (
-    <>
-      {facs.map(f => {
-        const fx = tx(f.x, cx), fz = tz(f.y, cz);
-        const distToCam = Math.sqrt((fx - camera.position.x) ** 2 + (fz - camera.position.z) ** 2);
-        if (distToCam > 60) return null;
-        const c = f.type === 'naval_base' ? '#f59e0b' : f.type === 'port' ? '#60a5fa' : f.type === 'airfield' ? '#c084fc' : '#4ade80';
-        return (
-          <Billboard><Text key={`fl_${f.id}`} position={[fx, 1.8, fz]} fontSize={0.8} color={c} anchorX="center" anchorY="middle" outlineWidth={0.08} outlineColor="#000">
-            {f.name}
-          </Text></Billboard>
-        );
-      })}
-    </>
-  );
-}
-
-function StratMap() {
+const StratMap = React.memo(function StratMap() {
   const ov = useNavalStore(s => s.overlay);
   const facs = useNavalStore(s => s.facilities);
+  const islands = useNavalStore(s => s.islands);
   if (!ov) return null;
   const { cx, cz, W, H } = useCoords();
-  const step = 8;
+  const step = 20;
 
   const tiles = useMemo(() => {
     const t: React.ReactNode[] = [];
@@ -102,18 +51,18 @@ function StratMap() {
     const fx = tx(f.x, cx), fz = tz(f.y, cz);
     const isBase = f.type === 'naval_base';
     const isPort = f.type === 'port';
-    const isAirfield = f.type === 'airfield';
-    const c = isBase ? '#f59e0b' : isPort ? '#3b82f6' : isAirfield ? '#a855f7' : '#22c55e';
-    const sz = isBase ? 1.0 : isPort ? 0.8 : isAirfield ? 0.6 : 0.5;
+    const c = isBase ? '#f59e0b' : isPort ? '#3b82f6' : '#a855f7';
     return (
       <group key={f.id}>
         <mesh position={[fx, 0.5, fz]}>
-          {isAirfield ? <boxGeometry args={[1.2, 0.25, 0.5]} /> : <cylinderGeometry args={[sz * 0.6, sz, sz * 1.2, 6]} />}
+          <cylinderGeometry args={[isBase ? 0.7 : 0.5, isBase ? 1.0 : 0.7, isBase ? 1.2 : 0.9, 6]} />
           <meshStandardMaterial color={c} emissive={c} emissiveIntensity={0.5} />
         </mesh>
       </group>
     );
   }), [facs, cx, cz]);
+
+  const largeIslands = useMemo(() => islands.filter(i => i.radius >= 25), [islands]);
 
   return (
     <>
@@ -122,14 +71,17 @@ function StratMap() {
       <hemisphereLight args={['#1e3a5f', '#0a1628', 0.3]} />
       {tiles}
       {facMarkers}
-      <FacilityLabels />
-      <IslandLabels />
-      <gridHelper args={[S * W, 40, '#1a3a6a', '#0a1628']} position={[0, 0.005, 0]} />
+      {largeIslands.map(i => (
+        <Text key={`in_${i.name}`} position={[tx(i.x, cx), 2.5, tz(i.y, cz)]} fontSize={1.5} color="#e2e8f0" anchorX="center" outlineWidth={0.15} outlineColor="#000" fontWeight="bold">
+          {i.name}
+        </Text>
+      ))}
+      <gridHelper args={[S * W, 30, '#1a3a6a', '#0a1628']} position={[0, 0.005, 0]} />
     </>
   );
-}
+});
 
-function FleetMarkers() {
+const FleetMarkers = React.memo(function FleetMarkers() {
   const fleets = useNavalStore(s => s.fleets);
   const ov = useNavalStore(s => s.overlay);
   const { cx, cz } = useCoords();
@@ -149,17 +101,17 @@ function FleetMarkers() {
               <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.6} metalness={0.4} />
             </mesh>
             {isCV && <mesh position={[0, 0.5, 0]}><boxGeometry args={[3.2, 0.08, 1.1]} /><meshStandardMaterial color="#94a3b8" /></mesh>}
-            <Billboard><Text position={[0, 1.2, 0]} fontSize={0.9} color={isP ? '#93c5fd' : '#fca5a5'} anchorX="center" anchorY="bottom" outlineWidth={0.08} outlineColor="#000" fontWeight="bold">
+            <Text position={[0, 1.2, 0]} fontSize={0.9} color={isP ? '#93c5fd' : '#fca5a5'} anchorX="center" outlineWidth={0.08} outlineColor="#000" fontWeight="bold">
               {f.name}
-            </Text></Billboard>
+            </Text>
           </group>
         );
       })}
     </>
   );
-}
+});
 
-function AircraftMarkers() {
+const AircraftMarkers = React.memo(function AircraftMarkers() {
   const airOps = useNavalStore(s => s.airOperations);
   const ov = useNavalStore(s => s.overlay);
   const { cx, cz } = useCoords();
@@ -167,7 +119,7 @@ function AircraftMarkers() {
 
   return (
     <>
-      {airOps.map(a => {
+      {airOps.slice(-12).map(a => {
         const ax = tx(a.x, cx), az = tz(a.y, cz);
         const color = a.type === 'strike' ? '#ef4444' : a.type === 'search' ? '#60a5fa' : '#22c55e';
         return (
@@ -181,9 +133,9 @@ function AircraftMarkers() {
       })}
     </>
   );
-}
+});
 
-function ContactMarkers() {
+const ContactMarkers = React.memo(function ContactMarkers() {
   const contacts = useNavalStore(s => s.intel.playerContacts);
   const ov = useNavalStore(s => s.overlay);
   const { cx, cz } = useCoords();
@@ -191,33 +143,22 @@ function ContactMarkers() {
 
   return (
     <>
-      {contacts.filter(c => c.detectionLevel !== 'none' && c.detectionLevel !== 'lost').map(c => {
+      {contacts.filter(c => c.detectionLevel !== 'none' && c.detectionLevel !== 'lost').slice(0, 20).map(c => {
         const px = tx(c.lastKnownPosition.x, cx), pz = tz(c.lastKnownPosition.y, cz);
         const t = c.detectionLevel === 'tracked' || c.detectionLevel === 'identified';
         return (
           <group key={c.id}>
             <mesh position={[px, 0.4, pz]}>
               {t ? <coneGeometry args={[0.4, 0.8, 6]} /> : <sphereGeometry args={[0.35, 8, 8]} />}
-              <meshStandardMaterial color={t ? '#ef4444' : '#fbbf24'} transparent opacity={0.8} emissive={t ? '#ef4444' : '#fbbf24'} emissiveIntensity={0.5} wireframe={!t} />
+              <meshBasicMaterial color={t ? '#ef4444' : '#fbbf24'} transparent opacity={0.7} />
             </mesh>
             <mesh position={[px, 0.02, pz]} rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[c.uncertaintyRadius * S * 0.5, c.uncertaintyRadius * S * 0.5 + 0.06, 36]} />
-              <meshBasicMaterial color={t ? '#ef4444' : '#fbbf24'} transparent opacity={0.2} side={THREE.DoubleSide} />
+              <ringGeometry args={[c.uncertaintyRadius * S * 0.4, c.uncertaintyRadius * S * 0.4 + 0.06, 24]} />
+              <meshBasicMaterial color={t ? '#ef4444' : '#fbbf24'} transparent opacity={0.18} side={2} />
             </mesh>
           </group>
         );
       })}
-    </>
-  );
-}
-
-const Scene = React.memo(function Scene() {
-  return (
-    <>
-      <StratMap />
-      <FleetMarkers />
-      <AircraftMarkers />
-      <ContactMarkers />
     </>
   );
 });
@@ -228,8 +169,11 @@ export function NavalScene3D() {
   if (!ov || fleets.length === 0) return null;
 
   return (
-    <Canvas camera={{ position: [0, 180, 0], fov: 30, near: 1, far: 1000 }} style={{ background: '#050d18' }} gl={{ antialias: true }}>
-      <Scene />
+    <Canvas camera={{ position: [0, 160, 0], fov: 30, near: 1, far: 1000 }} style={{ background: '#050d18' }} gl={{ antialias: true, powerPreference: 'high-performance' }}>
+      <StratMap />
+      <FleetMarkers />
+      <AircraftMarkers />
+      <ContactMarkers />
       <OrbitControls enableDamping dampingFactor={0.06} minDistance={20} maxDistance={400} maxPolarAngle={Math.PI / 2.2} />
     </Canvas>
   );
