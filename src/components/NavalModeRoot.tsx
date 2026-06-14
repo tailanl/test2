@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavalStore } from '@/store/naval-store';
-import { NavalStrategicMapPanel } from './NavalStrategicMapPanel';
+import { NavalScene3D } from './NavalScene3D';
 import { NavalFleetPanel } from './NavalFleetPanel';
 import { NavalIntelPanel } from './NavalIntelPanel';
 import { NavalReportPanel } from './NavalReportPanel';
@@ -67,7 +67,7 @@ export function NavalModeRoot() {
       {/* Main */}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-hidden">
-          <NavalStrategicMapPanel />
+          <NavalScene3D />
         </div>
 
         {/* Sidebar */}
