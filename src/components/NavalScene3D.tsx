@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, Text } from '@react-three/drei';
+import { OrbitControls, Text, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import { useNavalStore } from '@/store/naval-store';
 
@@ -36,9 +36,9 @@ function IslandLabels() {
         );
         if (distToCam > 80 || i.radius < 20) return null;
         return (
-          <Text key={`in_${i.name}`} position={[ix, 2.5, iz]} fontSize={1.5} color="#e2e8f0" anchorX="center" anchorY="middle" outlineWidth={0.15} outlineColor="#000" fontWeight="bold">
+          <Billboard><Text key={`in_${i.name}`} position={[ix, 2.5, iz]} fontSize={1.5} color="#e2e8f0" anchorX="center" anchorY="middle" outlineWidth={0.15} outlineColor="#000" fontWeight="bold">
             {i.name}
-          </Text>
+          </Text></Billboard>
         );
       })}
     </>
@@ -60,9 +60,9 @@ function FacilityLabels() {
         if (distToCam > 60) return null;
         const c = f.type === 'naval_base' ? '#f59e0b' : f.type === 'port' ? '#60a5fa' : f.type === 'airfield' ? '#c084fc' : '#4ade80';
         return (
-          <Text key={`fl_${f.id}`} position={[fx, 1.8, fz]} fontSize={0.8} color={c} anchorX="center" anchorY="middle" outlineWidth={0.08} outlineColor="#000">
+          <Billboard><Text key={`fl_${f.id}`} position={[fx, 1.8, fz]} fontSize={0.8} color={c} anchorX="center" anchorY="middle" outlineWidth={0.08} outlineColor="#000">
             {f.name}
-          </Text>
+          </Text></Billboard>
         );
       })}
     </>
@@ -149,9 +149,9 @@ function FleetMarkers() {
               <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.6} metalness={0.4} />
             </mesh>
             {isCV && <mesh position={[0, 0.5, 0]}><boxGeometry args={[3.2, 0.08, 1.1]} /><meshStandardMaterial color="#94a3b8" /></mesh>}
-            <Text position={[0, 1.2, 0]} fontSize={0.9} color={isP ? '#93c5fd' : '#fca5a5'} anchorX="center" anchorY="bottom" outlineWidth={0.08} outlineColor="#000" fontWeight="bold">
+            <Billboard><Text position={[0, 1.2, 0]} fontSize={0.9} color={isP ? '#93c5fd' : '#fca5a5'} anchorX="center" anchorY="bottom" outlineWidth={0.08} outlineColor="#000" fontWeight="bold">
               {f.name}
-            </Text>
+            </Text></Billboard>
           </group>
         );
       })}

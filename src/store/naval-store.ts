@@ -381,11 +381,20 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
     });
     reports = [...reports, ...newReports];
 
-    // 7. Update fleets with new ship positions
+    // 7. Update fleets with new ship positions AND sync fleet strategic position
     const updatedFleets = fleets.map((fleet) => {
+      const newShips = fleet.ships.map((s) => updatedShipMap[s.id] || s);
+      // Calculate fleet center from ship average position
+      const avgX = newShips.length > 0 ? newShips.reduce((sum, s) => sum + s.position.x, 0) / newShips.length : fleet.position.globalX;
+      const avgY = newShips.length > 0 ? newShips.reduce((sum, s) => sum + s.position.y, 0) / newShips.length : fleet.position.globalY;
       return {
         ...fleet,
-        ships: fleet.ships.map((s) => updatedShipMap[s.id] || s),
+        ships: newShips,
+        position: {
+          ...fleet.position,
+          globalX: Math.round(avgX),
+          globalY: Math.round(avgY),
+        },
       };
     });
 
