@@ -14,6 +14,35 @@ export interface MapConfig {
 export const STRATEGIC: MapConfig = { width: 3000, height: 2000, seed: 1942, islandGroups: 12, maxIslandR: 80, minIslandR: 12, seaLevel: 0.42 };
 export const TACTICAL: MapConfig = { width: 200, height: 150, seed: 1942, islandGroups: 3, maxIslandR: 40, minIslandR: 8, seaLevel: 0.38 };
 
+// ========== 真实太平洋地理 ==========
+export const PACIFIC_ISLANDS: Array<{ name: string; x: number; y: number; radius: number; faction: 'player'|'enemy'; baseType: 'naval_base'|'port'|'airfield' }> = [
+  // 日本本土及周边 (敌方)
+  { name: '横须贺', x: 350, y: 480, radius: 70, faction: 'enemy', baseType: 'naval_base' },
+  { name: '吴港', x: 280, y: 550, radius: 50, faction: 'enemy', baseType: 'naval_base' },
+  { name: '冲绳', x: 480, y: 620, radius: 40, faction: 'enemy', baseType: 'naval_base' },
+  { name: '硫磺岛', x: 650, y: 700, radius: 25, faction: 'enemy', baseType: 'airfield' },
+  // 马里亚纳群岛
+  { name: '塞班岛', x: 850, y: 850, radius: 35, faction: 'enemy', baseType: 'naval_base' },
+  { name: '关岛', x: 900, y: 900, radius: 40, faction: 'player', baseType: 'naval_base' },
+  // 加罗林群岛
+  { name: '特鲁克', x: 1050, y: 950, radius: 45, faction: 'enemy', baseType: 'naval_base' },
+  { name: '帕劳', x: 900, y: 1050, radius: 30, faction: 'enemy', baseType: 'port' },
+  // 所罗门群岛
+  { name: '拉包尔', x: 1100, y: 1200, radius: 40, faction: 'enemy', baseType: 'naval_base' },
+  { name: '瓜达尔卡纳尔', x: 1250, y: 1350, radius: 35, faction: 'player', baseType: 'airfield' },
+  // 马绍尔群岛
+  { name: '夸贾林', x: 1650, y: 920, radius: 25, faction: 'enemy', baseType: 'port' },
+  // 中太平洋
+  { name: '威克岛', x: 1750, y: 820, radius: 20, faction: 'player', baseType: 'airfield' },
+  { name: '中途岛', x: 2050, y: 750, radius: 25, faction: 'player', baseType: 'airfield' },
+  // 夏威夷 (玩家大本营)
+  { name: '珍珠港', x: 2550, y: 1050, radius: 80, faction: 'player', baseType: 'naval_base' },
+  // 菲律宾
+  { name: '莱特湾', x: 650, y: 1150, radius: 45, faction: 'player', baseType: 'port' },
+  // 吉尔伯特群岛
+  { name: '塔拉瓦', x: 1850, y: 1180, radius: 20, faction: 'enemy', baseType: 'airfield' },
+];
+
 // ========== PRNG + 噪声 ==========
 function mulberry32(a: number) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function buildPerm(s: number): number[] {
@@ -87,9 +116,34 @@ function classify(el: number, seaLvl: number): NavalSeaZoneType {
 }
 
 // ========== 设施放置 ==========
-function placeFacilities(cfg: MapConfig, rng: () => number, elevation: number[][], islands: IslandCenter[]): Fac[] {
+function placeFacilities(cfg: MapConfig, rng: () => number, elevation: number[][], islands: IslandCenter[], realData?: typeof PACIFIC_ISLANDS): Fac[] {
   const facs: Fac[] = [];
   let fid = 0;
+
+  if (realData) {
+    // Use real geography data for facilities
+    for (const rd of realData) {
+      const ic = islands.find(i => i.name === rd.name);
+      if (!ic) continue;
+      const bestX = rd.x, bestY = rd.y;
+      const faction = rd.faction;
+
+      // Port / Naval Base
+      const isBase = rd.baseType === 'naval_base';
+      if (rd.baseType === 'naval_base' || rd.baseType === 'port') {
+        facs.push({ id: `f${++fid}`, type: isBase ? 'naval_base' : 'port', name: `${rd.name}${isBase ? '基地' : '港'}`, x: bestX, y: bestY, islandName: rd.name, faction });
+        // Airfield near base
+        facs.push({ id: `f${++fid}`, type: 'airfield', name: `${rd.name}机场`, x: bestX + 8, y: bestY + 6, islandName: rd.name, faction });
+        // Supply depot
+        if (isBase) facs.push({ id: `f${++fid}`, type: 'supply_depot', name: `${rd.name}补给站`, x: bestX + 5, y: bestY - 5, islandName: rd.name, faction });
+      } else if (rd.baseType === 'airfield') {
+        facs.push({ id: `f${++fid}`, type: 'airfield', name: `${rd.name}机场`, x: bestX, y: bestY, islandName: rd.name, faction });
+      }
+    }
+    return facs;
+  }
+
+  // Procedural facility placement (original code)
   for (const ic of islands) {
     if (ic.radius < 15) continue;
     // Port at coastal edge
@@ -137,12 +191,20 @@ export interface StratMapResult {
   stats: { w: number; h: number; deepOcean: number; islands: number; ports: number; facilities: number };
 }
 
-export function generateStratMap(cfg: MapConfig = STRATEGIC): StratMapResult {
+export function generateStratMap(cfg: MapConfig = STRATEGIC, useRealGeo = true): StratMapResult {
   const rng = mulberry32(cfg.seed);
   const perm = buildPerm(cfg.seed);
-  const islands = genIslands(cfg, rng);
+
+  // Use real Pacific geography or procedural
+  let islands: IslandCenter[];
+  if (useRealGeo) {
+    islands = PACIFIC_ISLANDS.map(pi => ({ x: pi.x, y: pi.y, radius: pi.radius, name: pi.name }));
+  } else {
+    islands = genIslands(cfg, rng);
+  }
   const elevation = genElevation(cfg, perm, islands);
-  const facilities = placeFacilities(cfg, rng, elevation, islands);
+  const facilityData = useRealGeo ? PACIFIC_ISLANDS : undefined;
+  const facilities = placeFacilities(cfg, rng, elevation, islands, facilityData);
 
   // Build strategic overlay
   const overlay: NavalCellOverlay[][] = [];

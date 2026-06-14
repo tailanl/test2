@@ -9,6 +9,7 @@ export function SidePanel() {
   const reports = useNavalStore(s => s.reports);
   const battleLog = useNavalStore(s => s.battleLog);
   const airOps = useNavalStore(s => s.airOperations);
+  const landAfs = useNavalStore(s => s.landAirfields);
   const islands = useNavalStore(s => s.islands);
   const facilities = useNavalStore(s => s.facilities);
   const isCreating = useNavalStore(s => s.isCreatingScenario);
@@ -57,29 +58,32 @@ export function SidePanel() {
         const resp = await askLLM(ctx);
         addLog(`🤖 AI: ${resp.slice(0, 160)}`);
 
-        // 区域搜索：扇形放出多个搜索机组
-        if ((resp.includes('搜索') || resp.includes('侦察')) && pf) {
+        // 区域搜索：从航母和陆地机场扇形放出搜索机组
+        if ((resp.includes('搜索') || resp.includes('侦察'))) {
           const dirs = parseSearchDir(resp);
-          dirs.forEach((heading, i) => {
-            useNavalStore.setState(s2 => ({
-              airOperations: [...s2.airOperations, {
-                id: `s_${t}_${i}`, type: 'search', aircraft: 2,
-                x: pf.position.globalX + 40, y: pf.position.globalY + (i - dirs.length / 2) * 15,
-                heading, fleetName: pf.name, status: '搜索中',
-              }]
-            }));
+          // From fleet
+          if (pf) dirs.forEach((heading, i) => {
+            useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations,
+              { id: `s_fleet_${t}_${i}`, type: 'search', aircraft: 2, x: pf.position.globalX + 30, y: pf.position.globalY + (i - dirs.length / 2) * 12, heading, fleetName: pf.name, status: '搜索中' }
+            ]}));
           });
-          addLog(`  ✈️ 扇形搜索: ${dirs.length}组 × ${dirs.map(d => `${d}°`).join('/')}`);
+          // From land airfields
+          landAfs.filter(a => a.faction === 'player' && a.bombers > 0).slice(0, 2).forEach(af => {
+            useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations,
+              { id: `s_land_${t}_${af.id}`, type: 'search', aircraft: 2, x: af.x + 20, y: af.y, heading: dirs[0] || 45, fleetName: af.name, status: '搜索中' }
+            ]}));
+          });
+          addLog(`  ✈️ 扇形搜索: ${dirs.length}方向, 航母+陆基`);
         }
         if ((resp.includes('打击') || resp.includes('攻击')) && pf) {
           useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations, { id: `st_${t}`, type: 'strike', x: pf.position.globalX + 60, y: pf.position.globalY + 40, heading: 50, fleetName: pf.name, status: '进攻中', aircraft: 6 }] }));
         }
       } catch { addLog('🤖 AI离线'); }
 
-      // 飞机快速移动(80km vs 船20km)
+      // 飞机快速移动(50格/回合, 对应250km/h搜索机)
       const ao2 = useNavalStore.getState().airOperations.map(a => ({
         ...a,
-        x: a.x + 40, y: a.y + 25,
+        x: a.x + 50, y: a.y + 30,
         status: a.x > Math.max(pf?.position.globalX || 0, (fleets.find(f2 => f2.faction==='enemy')?.position.globalX || 1500)) + 300 ? '返航中' : a.status,
       }));
       useNavalStore.setState({ airOperations: ao2.filter(a => a.x < 2800 && a.y < 1800).slice(-20) });
@@ -165,14 +169,27 @@ export function SidePanel() {
       <div className="px-5 py-3 border-b border-sky-900/20">
         <div className="text-xs text-slate-400 uppercase tracking-wider mb-2">✈️ 航空任务 ({airOps.length})</div>
         {airOps.length === 0 && <div className="text-slate-600 text-[11px]">无空中任务</div>}
-        <div className="max-h-[120px] overflow-auto space-y-1">
+        <div className="max-h-[100px] overflow-auto space-y-1">
           {airOps.map(a => (
             <div key={a.id} className="flex items-center gap-2 text-[11px]">
               <span className={`w-2 h-2 rounded-full ${a.type === 'strike' ? 'bg-red-500 pulse' : a.type === 'search' ? 'bg-blue-400' : 'bg-green-400'}`} />
-              <span className={a.type === 'strike' ? 'text-red-400 font-bold' : a.type === 'search' ? 'text-blue-400' : 'text-green-400'}>{a.type === 'strike' ? '攻击' : a.type === 'search' ? '搜索' : 'CAP'}</span>
-              <span className="text-slate-300">{a.fleetName}</span>
+              <span className={a.type === 'strike' ? 'text-red-400 font-bold' : a.type === 'search' ? 'text-blue-400' : 'text-green-400'}>{a.type === 'strike' ? '攻击' : '搜索'}</span>
+              <span className="text-slate-300 truncate max-w-[80px]">{a.fleetName}</span>
               <span className="text-slate-500">×{a.aircraft}</span>
-              <span className="text-slate-600 ml-auto">({a.x},{a.y})</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 陆地机场 */}
+      <div className="px-5 py-3 border-b border-slate-800/50">
+        <div className="text-xs text-slate-400 uppercase tracking-wider mb-2">🏗️ 陆地机场 ({landAfs.length})</div>
+        <div className="max-h-[100px] overflow-auto space-y-1">
+          {landAfs.filter(a => a.faction === 'player').slice(0, 6).map(a => (
+            <div key={a.id} className="flex items-center gap-2 text-[10px]">
+              <span className={`w-1.5 h-1.5 rounded-full ${a.faction === 'player' ? 'bg-sky-400' : 'bg-red-400'}`} />
+              <span className="text-slate-300 truncate max-w-[70px]">{a.name}</span>
+              <span className="text-slate-600">F{a.fighters} B{a.bombers}</span>
             </div>
           ))}
         </div>

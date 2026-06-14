@@ -50,6 +50,7 @@ interface NavalStoreState {
   islands: IslandCenter[];
   tacticalMaps: StratMapResult['tacticalMaps'];
   airOperations: Array<{ id: string; type: 'search'|'strike'|'cap'; x: number; y: number; heading: number; fleetName: string; status: string; aircraft: number }>;
+  landAirfields: Array<{ id: string; name: string; x: number; y: number; faction: 'player'|'enemy'; fighters: number; bombers: number; }>;
 
   intel: NavalIntelState;
 
@@ -112,6 +113,7 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
   islands: [],
   tacticalMaps: [],
   airOperations: [],
+  landAirfields: [],
   intel: createDefaultIntelState(),
   reports: [],
   currentTurn: 0,
@@ -220,6 +222,15 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
       detectedByPlayer: false,
     };
 
+    // Create land airfields from map facilities
+    const landAfs = mapResult.facilities
+      .filter(f => f.type === 'airfield' || f.type === 'naval_base' || f.type === 'port')
+      .map(f => ({
+        id: `la_${f.id}`, name: f.name, x: f.x, y: f.y, faction: (f.faction === 'neutral' ? 'player' : f.faction) as 'player'|'enemy',
+        fighters: f.type === 'naval_base' ? 24 : f.type === 'airfield' ? 12 : 6,
+        bombers: f.type === 'naval_base' ? 18 : f.type === 'airfield' ? 8 : 4,
+      }));
+
     set({
       overlay,
       facilities: mapResult.facilities,
@@ -227,6 +238,7 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
       islands: mapResult.islands,
       tacticalMaps: mapResult.tacticalMaps,
       airOperations: [],
+      landAirfields: landAfs,
       fleets: [playerFleet, enemyFleet],
       intel: { ...createDefaultIntelState() },
       reports: [],
@@ -284,8 +296,8 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
     for (const fleet of fleets) {
       for (const ship of fleet.ships) {
         const moved = updateShipMotion(ship, 1);
-        moved.position.x = ship.position.x + (moved.position.x - ship.position.x) * 4;
-        moved.position.y = ship.position.y + (moved.position.y - ship.position.y) * 4;
+        moved.position.x = ship.position.x + (moved.position.x - ship.position.x) * 3;
+        moved.position.y = ship.position.y + (moved.position.y - ship.position.y) * 3;
         updatedShipMap[ship.id] = moved;
       }
     }
