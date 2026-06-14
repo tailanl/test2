@@ -148,6 +148,37 @@ export function SidePanel() {
     catch { alog('Failed to load replay'); }
   };
 
+  // ============ 报告生成 ============
+  const generateReport = () => {
+    const s = useNavalStore.getState();
+    let rpt = `═══════════════════════════════════════\n  NAVAL SITUATION REPORT  |  Turn: ${s.currentTurn}  |  ${new Date().toISOString().slice(0,19)}\n═══════════════════════════════════════\n\n`;
+    rpt += `WEATHER: ${s.environment.weather}  Sea:${s.environment.seaState}  Time:${s.environment.timeOfDay}\n\n`;
+    for (const f of s.fleets) {
+      const icon = f.faction === 'player' ? '🔵' : '🔴';
+      rpt += `${icon} ${f.name} (${f.type}) - ${f.mission} | Fuel:${f.fuelState} Ammo:${f.ammoState} | (${f.position.globalX},${f.position.globalY})\n`;
+      for (const sh of f.ships) {
+        const dmg = sh.damage.status !== 'combat_effective' ? ` [${sh.damage.status} F:${sh.damage.flooding.toFixed(0)}% Fire:${sh.damage.fire.toFixed(0)}% Hull:${sh.damage.hullIntegrity.toFixed(0)}%]` : '';
+        const ac = sh.aircraft ? ` CV:F${sh.aircraft.fighters}/DB${sh.aircraft.diveBombers}/TB${sh.aircraft.torpedoBombers}` : '';
+        rpt += `  ${sh.name} | ${sh.shipClass} | (${sh.position.x.toFixed(0)},${sh.position.y.toFixed(0)}) | HDG${sh.headingDeg} SPD${sh.speedKts}${ac}${dmg}\n`;
+      }
+    }
+    rpt += `\nCONTACTS (${s.intel.playerContacts.length}):\n`;
+    for (const c of s.intel.playerContacts) rpt += `  [${c.detectionLevel}] ${c.estimatedClass||'?'} @ (${c.lastKnownPosition.x.toFixed(0)},${c.lastKnownPosition.y.toFixed(0)}) ±${c.uncertaintyRadius.toFixed(0)}\n`;
+    rpt += `\nFACILITIES: ${s.facilities.map(f=>`${f.name}(${f.type})`).join(', ')}\n`;
+    const evts = s.battleLog.slice(-15);
+    if(evts.length) { rpt += `\nRECENT EVENTS:\n`; for(const e of evts) rpt += `  T${e.turn}: ${e.description}\n`; }
+    const allSh = s.fleets.flatMap(f=>f.ships);
+    const sunk=allSh.filter(sh=>sh.damage.status==='sunk'||sh.damage.status==='sinking');
+    const dmgd=allSh.filter(sh=>sh.damage.status!=='combat_effective'&&sh.damage.status!=='sunk'&&sh.damage.status!=='sinking');
+    rpt += `\nSUMMARY: ${allSh.length} ships | ${sunk.length} lost | ${dmgd.length} damaged | ${s.intel.playerContacts.length} contacts\n`;
+    const blob = new Blob([rpt], {type:'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `naval-report-T${s.currentTurn}.txt`; a.click();
+    URL.revokeObjectURL(url);
+    alog('Report downloaded');
+  };
+
   // ============ 欢迎界面 ============
   if (!overlay && fleets.length === 0) {
     return (
@@ -242,6 +273,9 @@ export function SidePanel() {
         <input ref={fileRef} type="file" accept=".json" onChange={loadReplay} className="hidden" />
         <button onClick={() => fileRef.current?.click()} className="w-full py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded text-[9px]">
           Load Replay JSON
+        </button>
+        <button onClick={generateReport} className="w-full py-1.5 bg-green-700 hover:bg-green-600 text-white rounded text-[10px] font-bold">
+          GENERATE REPORT
         </button>
         {replay && (
           <div className="flex items-center gap-1 text-[9px]">
