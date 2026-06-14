@@ -124,43 +124,43 @@ export function createDefaultAircraftMotionProfile(aircraftClass: NavalAircraftC
   switch (aircraftClass) {
     case 'fighter':
       return {
-        maxSpeedKts: 330, cruiseSpeedKts: 220,
+        maxSpeedKts: 335, cruiseSpeedKts: 205,  // 620km/h Hellcat
         minAttackSpeedKts: 140, maxAttackSpeedKts: 320,
-        accelerationKtsPerTurn: 45, decelerationKtsPerTurn: 55,
-        maxTurnRateDegPerTurn: 45, turnAgility: 1.4,
+        accelerationKtsPerTurn: 50, decelerationKtsPerTurn: 60,
+        maxTurnRateDegPerTurn: 40, turnAgility: 1.3,
         turnRateBySpeed: baseTurnRates,
       };
     case 'dive_bomber':
       return {
-        maxSpeedKts: 260, cruiseSpeedKts: 170,
-        minAttackSpeedKts: 130, maxAttackSpeedKts: 290,
-        accelerationKtsPerTurn: 30, decelerationKtsPerTurn: 45,
-        maxTurnRateDegPerTurn: 32, turnAgility: 1.0,
+        maxSpeedKts: 217, cruiseSpeedKts: 151,  // SBD Dauntless 402km/h max, 280km/h cruise
+        minAttackSpeedKts: 120, maxAttackSpeedKts: 210,
+        accelerationKtsPerTurn: 35, decelerationKtsPerTurn: 45,
+        maxTurnRateDegPerTurn: 30, turnAgility: 0.95,
         turnRateBySpeed: baseTurnRates,
       };
     case 'torpedo_bomber':
       return {
-        maxSpeedKts: 220, cruiseSpeedKts: 150,
-        minAttackSpeedKts: 90, maxAttackSpeedKts: 160,
-        accelerationKtsPerTurn: 25, decelerationKtsPerTurn: 35,
+        maxSpeedKts: 203, cruiseSpeedKts: 140,  // B5N Kate 377km/h
+        minAttackSpeedKts: 80, maxAttackSpeedKts: 150,
+        accelerationKtsPerTurn: 30, decelerationKtsPerTurn: 35,
         maxTurnRateDegPerTurn: 24, turnAgility: 0.75,
         turnRateBySpeed: baseTurnRates,
       };
     case 'scout':
     case 'floatplane':
       return {
-        maxSpeedKts: 180, cruiseSpeedKts: 120,
+        maxSpeedKts: 180, cruiseSpeedKts: 130,
         minAttackSpeedKts: 90, maxAttackSpeedKts: 160,
-        accelerationKtsPerTurn: 20, decelerationKtsPerTurn: 25,
+        accelerationKtsPerTurn: 25, decelerationKtsPerTurn: 30,
         maxTurnRateDegPerTurn: 22, turnAgility: 0.7,
         turnRateBySpeed: baseTurnRates,
       };
     case 'level_bomber':
     default:
       return {
-        maxSpeedKts: 230, cruiseSpeedKts: 160,
-        minAttackSpeedKts: 120, maxAttackSpeedKts: 220,
-        accelerationKtsPerTurn: 20, decelerationKtsPerTurn: 25,
+        maxSpeedKts: 210, cruiseSpeedKts: 150,
+        minAttackSpeedKts: 120, maxAttackSpeedKts: 200,
+        accelerationKtsPerTurn: 25, decelerationKtsPerTurn: 30,
         maxTurnRateDegPerTurn: 18, turnAgility: 0.55,
         turnRateBySpeed: baseTurnRates,
       };

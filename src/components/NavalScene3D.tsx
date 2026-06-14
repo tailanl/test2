@@ -62,7 +62,14 @@ const StratMap = React.memo(function StratMap() {
     );
   }), [facs, cx, cz]);
 
-  const largeIslands = useMemo(() => islands.filter(i => i.radius >= 25), [islands]);
+  const largeIslands = useMemo(() => islands.filter(i => i.radius >= 20), [islands]);
+
+  // Map island names to their faction from facilities
+  const islandFaction = useMemo(() => {
+    const m = new Map<string, 'player'|'enemy'>();
+    for (const f of facs) { if (f.islandName && !m.has(f.islandName)) m.set(f.islandName, (f.faction === 'neutral' ? 'player' : f.faction) as 'player'|'enemy'); }
+    return m;
+  }, [facs]);
 
   return (
     <>
@@ -71,11 +78,15 @@ const StratMap = React.memo(function StratMap() {
       <hemisphereLight args={['#1e3a5f', '#0a1628', 0.3]} />
       {tiles}
       {facMarkers}
-      {largeIslands.map(i => (
-        <Text key={`in_${i.name}`} position={[tx(i.x, cx), 2.5, tz(i.y, cz)]} fontSize={1.5} color="#e2e8f0" anchorX="center" outlineWidth={0.15} outlineColor="#000" fontWeight="bold">
-          {i.name}
-        </Text>
-      ))}
+      {largeIslands.map(i => {
+        const faction = islandFaction.get(i.name) || 'player';
+        const color = faction === 'player' ? '#60a5fa' : '#f87171';
+        return (
+          <Text key={`in_${i.name}`} position={[tx(i.x, cx), 3.5, tz(i.y, cz)]} fontSize={2.5} color={color} anchorX="center" outlineWidth={0.2} outlineColor="#000" fontWeight="bold">
+            {i.name}
+          </Text>
+        );
+      })}
       <gridHelper args={[S * W, 30, '#1a3a6a', '#0a1628']} position={[0, 0.005, 0]} />
     </>
   );
@@ -169,12 +180,24 @@ export function NavalScene3D() {
   if (!ov || fleets.length === 0) return null;
 
   return (
-    <Canvas camera={{ position: [0, 160, 0], fov: 30, near: 1, far: 1000 }} style={{ background: '#050d18' }} gl={{ antialias: true, powerPreference: 'high-performance' }}>
-      <StratMap />
-      <FleetMarkers />
-      <AircraftMarkers />
-      <ContactMarkers />
-      <OrbitControls enableDamping dampingFactor={0.06} minDistance={20} maxDistance={400} maxPolarAngle={Math.PI / 2.2} />
-    </Canvas>
+    <div className="relative w-full h-full">
+      {/* 图例面板 */}
+      <div className="absolute bottom-3 left-3 glass rounded-lg p-3 text-[11px] text-slate-300 space-y-1 z-10">
+        <div className="font-bold text-amber-400 text-xs mb-1">图例</div>
+        <div className="flex items-center gap-2"><span className="w-4 h-2 bg-[#3b82f6] rounded"/><span className="text-sky-400">美军基地/舰队</span></div>
+        <div className="flex items-center gap-2"><span className="w-4 h-2 bg-[#ef4444] rounded"/><span className="text-red-400">日军基地/舰队</span></div>
+        <div className="flex items-center gap-2"><span className="w-3 h-3 bg-[#f59e0b] rounded-full"/><span className="text-amber-400">海军基地</span></div>
+        <div className="flex items-center gap-2"><span className="w-3 h-3 bg-[#3b82f6] rounded-full"/><span className="text-sky-400">港口</span></div>
+        <div className="flex items-center gap-2"><span className="w-3 h-1.5 bg-[#a855f7] rounded"/><span className="text-purple-400">机场</span></div>
+        <div className="flex items-center gap-2"><span className="text-[#1e4a14]">■</span><span className="text-green-700">岛屿</span></div>
+      </div>
+      <Canvas camera={{ position: [0, 160, 0], fov: 30, near: 1, far: 1000 }} style={{ background: '#050d18' }} gl={{ antialias: true, powerPreference: 'high-performance' }}>
+        <StratMap />
+        <FleetMarkers />
+        <AircraftMarkers />
+        <ContactMarkers />
+        <OrbitControls enableDamping dampingFactor={0.06} minDistance={20} maxDistance={400} maxPolarAngle={Math.PI / 2.2} />
+      </Canvas>
+    </div>
   );
 }

@@ -80,10 +80,10 @@ export function SidePanel() {
         }
       } catch { addLog('🤖 AI离线'); }
 
-      // 飞机快速移动(50格/回合, 对应250km/h搜索机)
+      // 飞机搜索速度: 55格/回合 (SBD无畏 巡航280km/h ÷ 5km/格 ≈ 56格)
       const ao2 = useNavalStore.getState().airOperations.map(a => ({
         ...a,
-        x: a.x + 50, y: a.y + 30,
+        x: a.x + 55, y: a.y + 35,
         status: a.x > Math.max(pf?.position.globalX || 0, (fleets.find(f2 => f2.faction==='enemy')?.position.globalX || 1500)) + 300 ? '返航中' : a.status,
       }));
       useNavalStore.setState({ airOperations: ao2.filter(a => a.x < 2800 && a.y < 1800).slice(-20) });
@@ -274,15 +274,15 @@ function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 function parseSearchDir(resp: string): number[] {
   const lower = resp.toLowerCase();
-  // Fan-shaped search in multiple directions
-  if (lower.includes('ne') || lower.includes('东北')) return [30, 45, 60, 75];
-  if (lower.includes('nw') || lower.includes('西北')) return [300, 315, 330, 345];
-  if (lower.includes('se') || lower.includes('东南')) return [120, 135, 150, 165];
-  if (lower.includes('sw') || lower.includes('西南')) return [210, 225, 240, 255];
-  if (lower.includes('n') || lower.includes('北')) return [345, 0, 15, 30];
-  if (lower.includes('s') || lower.includes('南')) return [165, 180, 195, 210];
-  if (lower.includes('e') || lower.includes('东')) return [60, 75, 90, 105, 120];
-  if (lower.includes('w') || lower.includes('西')) return [240, 255, 270, 285, 300];
-  // Default: all-around search
-  return [0, 45, 90, 135, 180, 225, 270, 315];
+  // Chinese + English direction support
+  if (lower.includes('东北') || lower.includes('ne')) return [30, 45, 60, 75];
+  if (lower.includes('西北') || lower.includes('nw')) return [300, 315, 330, 345];
+  if (lower.includes('东南') || lower.includes('se')) return [120, 135, 150, 165];
+  if (lower.includes('西南') || lower.includes('sw')) return [210, 225, 240, 255];
+  if (lower.includes('北') || lower.includes('north')) return [345, 0, 15, 30];
+  if (lower.includes('南') || lower.includes('south')) return [165, 180, 195, 210];
+  if (lower.includes('东') || lower.includes('east')) return [60, 75, 90, 105, 120];
+  if (lower.includes('西') || lower.includes('west')) return [240, 255, 270, 285, 300];
+  // Default fan-shaped search toward enemy (if contacts exist)
+  return [0, 60, 120, 180, 240, 300];
 }
