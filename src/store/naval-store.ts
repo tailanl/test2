@@ -22,6 +22,7 @@ import { generateCarrierAIActions } from '../game/naval/ai/naval-carrier-ai';
 import { generateNavalReports } from '../game/naval/ai/naval-report-generator';
 import { executeNavalAIActions } from '../game/naval/ai/naval-action-executor';
 import { updateShipMotion } from '../game/naval/ship/ship-motion';
+import { applyNavalDamage } from '../game/naval/ship/ship-damage';
 import { createShipForClass } from '../game/naval/naval-debug';
 import { updateAirMissions, type CarrierAirGroup, type NavalAirMission } from '../game/naval/ship/ship-aircraft';
 import { getNavalAdvice, parseNaturalCommand, buildNavalLLMContext } from '../ai/provider';
@@ -278,15 +279,74 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
 
     const newTurn = currentTurn + 1;
 
-    // 1. Update ship motion
+    // 1. Update ship motion (strategic scale: multiply movement by 8x for 3000-wide map)
     let updatedShipMap: Record<string, NavalShip> = {};
     for (const fleet of fleets) {
       for (const ship of fleet.ships) {
-        updatedShipMap[ship.id] = updateShipMotion(ship, 1);
+        const moved = updateShipMotion(ship, 8); // 8x speed for strategic scale
+        // Apply strategic-scale movement
+        moved.position.x = ship.position.x + (moved.position.x - ship.position.x) * 8;
+        moved.position.y = ship.position.y + (moved.position.y - ship.position.y) * 8;
+        updatedShipMap[ship.id] = moved;
       }
     }
 
-    // 2. Generate AI actions from contacts only (no enemyShips)
+    // Auto-engage enemy if fleets are close: move ships toward each other
+    const pFleet = fleets.find(f => f.faction === 'player');
+    const eFleet = fleets.find(f => f.faction === 'enemy');
+    if (pFleet && eFleet) {
+      const pfx = pFleet.position.globalX, pfy = pFleet.position.globalY;
+      const efx = eFleet.position.globalX, efy = eFleet.position.globalY;
+      const stratDist = Math.sqrt((pfx-efx)**2 + (pfy-efy)**2);
+
+      if (stratDist < 150) {
+        // Fleets close: pull ships together for engagement
+        const midX = (pfx + efx) / 2, midY = (pfy + efy) / 2;
+        for (const ship of pFleet.ships) {
+          const s = updatedShipMap[ship.id];
+          if (s) {
+            s.targetSpeedKts = 30;
+            s.position.x += (midX - s.position.x) * 0.3;
+            s.position.y += (midY - s.position.y) * 0.3;
+            updatedShipMap[ship.id] = s;
+          }
+        }
+        for (const ship of eFleet.ships) {
+          const s = updatedShipMap[ship.id];
+          if (s) {
+            s.targetSpeedKts = 25;
+            s.position.x += (midX - s.position.x) * 0.3;
+            s.position.y += (midY - s.position.y) * 0.3;
+            updatedShipMap[ship.id] = s;
+          }
+        }
+      }
+    }
+
+    // Auto-combat: if enemy ships within 25u of player ships, deal damage
+    const allShips = Object.values(updatedShipMap);
+    const pShips = allShips.filter(s => s.faction === 'player');
+    const eShips = allShips.filter(s => s.faction === 'enemy');
+    for (const ps of pShips) {
+      for (const es of eShips) {
+        const dx = ps.position.x - es.position.x, dy = ps.position.y - es.position.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 25) {
+          const torp = ps.shipClass === 'destroyer' && dist < 8 && Math.random() < 0.4;
+          const dmg = applyNavalDamage({
+            ship: es, hitLocation: 'midships',
+            damageType: torp ? 'torpedo_hit' : 'shell_hit',
+            penetration: torp ? 60 : 30, explosivePower: torp ? 35 : 10,
+            underwater: torp, turn: newTurn,
+          });
+          es.damage = dmg.ship.damage;
+          updatedShipMap[es.id] = es;
+          for (const e of dmg.events) {
+            battleLog.push({ ...e, turn: newTurn });
+          }
+        }
+      }
+    }
     const aiInput = {
       friendlyFleets: fleets.filter((f) => f.faction === 'player'),
       friendlyShips: Object.values(updatedShipMap).filter((s) => s.faction === 'player'),
