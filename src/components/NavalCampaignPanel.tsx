@@ -60,7 +60,7 @@ export function NavalCampaignPanel() {
           id: `llm_${t}_${i}`, type: o.action || 'hold_fire',
           shipId: state.fleets[0]?.ships.find((s: any) => s.shipClass?.includes('carrier'))?.id || state.fleets[0]?.ships[0]?.id,
           fleetId: state.fleets[0]?.id,
-          targetContactId: undefined, targetPosition: undefined, headingDeg: o.heading, targetSpeedKts: o.speed, rudderDeg: 0,
+          targetContactId: o.targetContactId, targetPosition: undefined, headingDeg: o.heading, targetSpeedKts: o.speed, rudderDeg: 0,
           reason: o.reason || '', basedOnContactIds: [],
         }));
         if (actions.length > 0) {

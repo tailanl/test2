@@ -10,6 +10,8 @@ export function SidePanel() {
   const battleLog = useNavalStore(s => s.battleLog);
   const airOps = useNavalStore(s => s.airOperations);
   const landAfs = useNavalStore(s => s.landAirfields);
+  const weather = useNavalStore(s => s.weather);
+  const victory = useNavalStore(s => s.victory);
   const islands = useNavalStore(s => s.islands);
   const facilities = useNavalStore(s => s.facilities);
   const isCreating = useNavalStore(s => s.isCreatingScenario);
@@ -97,9 +99,9 @@ export function SidePanel() {
           let moveDir = 0; let moveDist = 0;
 
           // 解析LLM的移动命令
-          if (resp.includes('拦截') || resp.includes('追击') || resp.includes('接近')) moveDist = 25;
-          else if (resp.includes('撤退') || resp.includes('撤离') || resp.includes('退避')) moveDist = -15;
-          else if (resp.includes('机动') || resp.includes('前进') || resp.includes('移动')) moveDist = 15;
+          if (resp.includes('拦截') || resp.includes('追击') || resp.includes('接近')) moveDist = 15;
+          else if (resp.includes('撤退') || resp.includes('撤离') || resp.includes('退避')) moveDist = -10;
+          else if (resp.includes('机动') || resp.includes('前进') || resp.includes('移动')) moveDist = 10;
 
           // 方向
           if (resp.includes('东北') || resp.includes('NE')) moveDir = 45;
@@ -139,8 +141,8 @@ export function SidePanel() {
           const edx = pf.position.globalX - ef2.position.globalX;
           const edy = pf.position.globalY - ef2.position.globalY;
           const edist = Math.sqrt(edx*edx + edy*edy);
-          if (edist > 80) {
-            const moveStep = Math.min(20, edist * 0.15);
+          if (edist > 50) {
+            const moveStep = Math.min(12, edist * 0.12);
             ef2.position.globalX += Math.round(edx / edist * moveStep);
             ef2.position.globalY += Math.round(edy / edist * moveStep);
             for (const sh of ef2.ships) {
@@ -151,13 +153,13 @@ export function SidePanel() {
         }
       } catch { addLog('🤖 AI离线'); }
 
-      // 飞机移动: 30格/回合 (≈150km/h巡航, 1格=5km)
+      // 飞机移动: 20格/回合 (150km/h巡航, 1格=2km)
       const ao2 = useNavalStore.getState().airOperations.map(a => {
         const rad = a.heading * Math.PI / 180;
         return {
           ...a,
-          x: a.x + Math.cos(rad) * 30,
-          y: a.y + Math.sin(rad) * 30,
+          x: a.x + Math.cos(rad) * 20,
+          y: a.y + Math.sin(rad) * 20,
           status: a.x > Math.max(pf?.position.globalX || 0, (fleets.find(f2 => f2.faction === 'enemy')?.position.globalX || 1500)) + 300 ? '返航中' : a.status,
         };
       });
@@ -215,7 +217,7 @@ export function SidePanel() {
         <div className="text-6xl">⚓</div>
         <h1 className="text-2xl font-black text-white text-center tracking-widest">太平洋<br/>舰队司令部</h1>
         <div className="h-0.5 w-20 bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
-        <p className="text-xs text-slate-400 text-center leading-relaxed">战略图 3000×2000 · 1格≈5km<br/>16个岛链 · 美东日西 · 航母航空战<br/>每回合舰船≈15-20格(75-100km)</p>
+        <p className="text-xs text-slate-400 text-center leading-relaxed">战略图 1500×1000 · 1格≈2km<br/>16个岛链 · 美东日西 · 航母航空战<br/>遭遇战: 击沉敌方舰队即胜利</p>
         <button onClick={createScenario} disabled={isCreating}
           className="w-full py-3.5 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-700 text-white font-bold rounded-lg text-base transition-colors">
           {isCreating ? '正在生成太平洋...' : '⚡ 部署舰队'}
@@ -229,11 +231,17 @@ export function SidePanel() {
 
   return (
     <div className="w-[440px] flex flex-col glass border-l border-blue-900/20 shrink-0 text-xs">
+      {/* 胜利横幅 */}
+      {victory !== 'none' && (
+        <div className={`px-5 py-4 text-center font-black text-xl ${victory === 'player' ? 'bg-green-900/60 text-green-400' : 'bg-red-900/60 text-red-400'}`}>
+          {victory === 'player' ? '🏆 美军胜利！敌方舰队全灭' : '💀 日军胜利！己方舰队全灭'}
+        </div>
+      )}
       {/* 标题栏 */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800/50">
         <div>
           <span className="text-amber-400 font-black text-xl">第 {currentTurn} 回合</span>
-          <div className="text-[10px] text-slate-500">{islands.length}群岛 · {facilities.length}设施</div>
+          <div className="text-[10px] text-slate-500">{islands.length}群岛 · {facilities.length}设施 · {weather === 'clear' ? '☀️晴' : weather === 'rain' ? '🌧️雨' : weather === 'squall' ? '🌪️暴风' : weather === 'fog' ? '🌫️雾' : '⛈️风暴'}</div>
         </div>
         <button onClick={advanceNavalTurn} className="px-5 py-2.5 bg-blue-700 hover:bg-blue-600 text-white rounded-lg text-sm font-bold">推进</button>
       </div>

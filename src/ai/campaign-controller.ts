@@ -13,6 +13,13 @@ import type { NavalBattleLogEvent } from '../game/naval/ship/ship-damage';
 import { callDeepSeekAPI, buildNavalLLMContext } from './provider';
 import type { AIProviderConfig, NavalLLMContext } from './types';
 import type { generateNavalMap } from '../game/naval/naval-map-generator';
+import {
+  CAMPAIGN_JSON_PROMPT,
+  campaignDecisionToActions,
+  getRuleBasedCampaignDecision,
+  normalizeCampaignDecision,
+  parseCampaignDecision,
+} from './naval-campaign-policy';
 
 // ============================================================
 // 战役日志
@@ -126,40 +133,7 @@ function summarizeForLLM(state: TurnState): string {
 // LLM 决策
 // ============================================================
 
-const CAMPAIGN_SYSTEM_PROMPT = `You are the commanding admiral of a WWII Pacific carrier task force. You receive intelligence reports each turn and must issue orders.
-
-CRITICAL RULES:
-- You ONLY see detected contacts. You do NOT know hidden enemy positions.
-- Carriers must stay away from gun range (keep distance > 25).
-- Use search aircraft when no contacts exist.
-- Strike with aircraft when contacts are tracked/identified.
-- Damaged ships should withdraw if flooding > 40% or fire > 50%.
-- Destroyers screen the carriers.
-- Submarines attack transports and carriers.
-- Do NOT charge battleships into carrier vs carrier combat.
-
-RESPOND IN THIS EXACT JSON FORMAT (no other text):
-{
-  "situation": "Brief tactical assessment (1-2 sentences)",
-  "fleetOrders": {
-    "fleetName": "Your fleet name",
-    "action": "search|strike|intercept|patrol|withdraw|hold",
-    "heading": 90,
-    "speed": 20
-  },
-  "shipOrders": [
-    {
-      "shipName": "Ship name",
-      "action": "launch_search|launch_cap|launch_strike|change_course|change_speed|fire_main_guns|fire_torpedoes|withdraw|hold_fire",
-      "heading": 90,
-      "speed": 25,
-      "target": "contact or ship name",
-      "reason": "Why this order"
-    }
-  ],
-  "priorityTargets": ["most threatening contact id or class"],
-  "notes": "Additional commander notes"
-}`;
+const CAMPAIGN_SYSTEM_PROMPT = CAMPAIGN_JSON_PROMPT;
 
 export async function getLLMCampaignDecision(
   config: AIProviderConfig,
@@ -181,20 +155,22 @@ export async function getLLMCampaignDecision(
       userMessage,
     });
 
-    // Extract JSON from response
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return {
-        situation: parsed.situation || 'No assessment',
-        fleetOrders: parsed.fleetOrders || {},
-        shipOrders: Array.isArray(parsed.shipOrders) ? parsed.shipOrders : [],
-        priorityTargets: Array.isArray(parsed.priorityTargets) ? parsed.priorityTargets : [],
-        notes: parsed.notes || '',
-      };
-    }
-
-    return { situation: raw, fleetOrders: {}, shipOrders: [], priorityTargets: [], notes: '' };
+    const policyState = { turn: state.turn, playerFleet: state.playerFleet, contacts: state.contacts };
+    const decision = normalizeCampaignDecision(parseCampaignDecision(raw), policyState);
+    const actions = campaignDecisionToActions(decision, policyState);
+    return {
+      situation: decision.situation,
+      fleetOrders: { ...(decision.orders[0] || {}) },
+      shipOrders: actions.map((action) => ({
+        action: action.type,
+        heading: action.headingDeg,
+        speed: action.targetSpeedKts,
+        targetContactId: action.targetContactId,
+        reason: action.reason,
+      })),
+      priorityTargets: actions.flatMap((action) => action.targetContactId ? [action.targetContactId] : []),
+      notes: decision.notes || '',
+    };
   } catch (e) {
     console.warn('LLM campaign decision failed, using rule-based fallback:', e);
     return getRuleBasedDecision(state);
@@ -202,37 +178,21 @@ export async function getLLMCampaignDecision(
 }
 
 function getRuleBasedDecision(state: TurnState) {
-  const trackedContacts = state.contacts.filter(
-    (c) => c.detectionLevel === 'tracked' || c.detectionLevel === 'identified' || c.detectionLevel === 'classified'
-  );
-  const suspectedContacts = state.contacts.filter(
-    (c) => c.detectionLevel === 'detected' || c.detectionLevel === 'suspected'
-  );
-
-  if (trackedContacts.length > 0) {
-    return {
-      situation: `${trackedContacts.length} contacts tracked. Recommend carrier strike.`,
-      fleetOrders: { fleetName: 'Task Force', action: 'strike', heading: 0, speed: 20 },
-      shipOrders: [{ shipName: 'CV Enterprise', action: 'launch_strike', target: 'tracked contact', reason: 'Tracked contacts available for strike' }],
-      priorityTargets: trackedContacts.map((c) => c.id),
-      notes: 'Rule-based fallback: strike tracked contacts',
-    };
-  }
-  if (suspectedContacts.length > 0) {
-    return {
-      situation: `${suspectedContacts.length} suspected contacts. Launch search to upgrade.`,
-      fleetOrders: { fleetName: 'Task Force', action: 'search', heading: 0, speed: 18 },
-      shipOrders: [{ shipName: 'CV Enterprise', action: 'launch_search', reason: 'Search for suspected contacts' }],
-      priorityTargets: [],
-      notes: 'Rule-based fallback: search for contacts',
-    };
-  }
+  const policyState = { turn: state.turn, playerFleet: state.playerFleet, contacts: state.contacts };
+  const decision = getRuleBasedCampaignDecision(policyState);
+  const actions = campaignDecisionToActions(decision, policyState);
   return {
-    situation: 'No contacts. Routine patrol.',
-    fleetOrders: { fleetName: 'Task Force', action: 'patrol', heading: 0, speed: 18 },
-    shipOrders: [{ shipName: 'CV Enterprise', action: 'launch_search', reason: 'Routine patrol search' }],
-    priorityTargets: [],
-    notes: 'Rule-based fallback: patrol',
+    situation: decision.situation,
+    fleetOrders: { ...(decision.orders[0] || {}) },
+    shipOrders: actions.map((action) => ({
+      action: action.type,
+      heading: action.headingDeg,
+      speed: action.targetSpeedKts,
+      targetContactId: action.targetContactId,
+      reason: action.reason,
+    })),
+    priorityTargets: actions.flatMap((action) => action.targetContactId ? [action.targetContactId] : []),
+    notes: 'Rule-based fallback',
   };
 }
 

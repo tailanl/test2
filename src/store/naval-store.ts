@@ -51,6 +51,8 @@ interface NavalStoreState {
   tacticalMaps: StratMapResult['tacticalMaps'];
   airOperations: Array<{ id: string; type: 'search'|'strike'|'cap'; x: number; y: number; heading: number; fleetName: string; status: string; aircraft: number }>;
   landAirfields: Array<{ id: string; name: string; x: number; y: number; faction: 'player'|'enemy'; fighters: number; bombers: number; }>;
+  weather: 'clear'|'rain'|'squall'|'fog'|'storm';
+  victory: 'none'|'player'|'enemy';
 
   intel: NavalIntelState;
 
@@ -114,6 +116,8 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
   tacticalMaps: [],
   airOperations: [],
   landAirfields: [],
+  weather: 'clear' as const,
+  victory: 'none' as const,
   intel: createDefaultIntelState(),
   reports: [],
   currentTurn: 0,
@@ -291,13 +295,17 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
 
     const newTurn = currentTurn + 1;
 
+    // Weather rotation
+    const weathers: Array<'clear'|'rain'|'squall'|'fog'|'storm'> = ['clear','clear','clear','rain','clear','clear','squall','clear','fog','clear','clear','storm'];
+    const weather = weathers[newTurn % weathers.length];
+
     // 1. Update ship motion (4x strategic movement for 3000-wide map)
     let updatedShipMap: Record<string, NavalShip> = {};
     for (const fleet of fleets) {
       for (const ship of fleet.ships) {
         const moved = updateShipMotion(ship, 1);
-        moved.position.x = ship.position.x + (moved.position.x - ship.position.x) * 2;
-        moved.position.y = ship.position.y + (moved.position.y - ship.position.y) * 2;
+        moved.position.x = ship.position.x + (moved.position.x - ship.position.x) * 1;
+        moved.position.y = ship.position.y + (moved.position.y - ship.position.y) * 1;
         updatedShipMap[ship.id] = moved;
       }
     }
@@ -310,7 +318,7 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
       const efx = eFleet.position.globalX, efy = eFleet.position.globalY;
       const stratDist = Math.sqrt((pfx-efx)**2 + (pfy-efy)**2);
 
-      if (stratDist < 300) {
+      if (stratDist < 150) {
         // Fleets close: pull ships together for engagement
         const midX = (pfx + efx) / 2, midY = (pfy + efy) / 2;
         for (const ship of pFleet.ships) {
@@ -469,12 +477,21 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
       };
     });
 
+    // Victory check
+    let victory: 'none'|'player'|'enemy' = 'none';
+    const pF2 = updatedFleets.find(f => f.faction === 'player');
+    const eF2 = updatedFleets.find(f => f.faction === 'enemy');
+    if (pF2 && pF2.ships.every(s => s.damage.status === 'sunk' || s.damage.status === 'sinking')) victory = 'enemy';
+    if (eF2 && eF2.ships.every(s => s.damage.status === 'sunk' || s.damage.status === 'sinking')) victory = 'player';
+
     set({
       fleets: updatedFleets,
       intel,
       reports,
       currentTurn: newTurn,
       battleLog,
+      weather,
+      victory,
     });
   },
 

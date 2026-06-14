@@ -3,7 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Text } from '@react-three/drei';
 import { useNavalStore } from '@/store/naval-store';
 
-const S = 0.07;
+const S = 0.12;
 
 function tx(wx: number, cx: number) { return wx * S - cx; }
 function tz(wy: number, cz: number) { return -(wy * S - cz); }

@@ -2,7 +2,7 @@
  * 太平洋海战地图系统 v3
  * 战略图 3000×2000 + 战术图(每岛链独立) + 设施 + 航道
  */
-import type { NavalCellOverlay, NavalSeaZoneType } from './naval-types';
+import type { NavalCellOverlay, NavalSeaZoneType, ShippingLane } from './naval-types';
 
 // ========== 配置 ==========
 export interface MapConfig {
@@ -11,8 +11,11 @@ export interface MapConfig {
   seaLevel: number;
 }
 
-export const STRATEGIC: MapConfig = { width: 3000, height: 2000, seed: 1942, islandGroups: 12, maxIslandR: 80, minIslandR: 12, seaLevel: 0.42 };
+export const STRATEGIC: MapConfig = { width: 1500, height: 1000, seed: 1942, islandGroups: 12, maxIslandR: 40, minIslandR: 8, seaLevel: 0.42 };
 export const TACTICAL: MapConfig = { width: 200, height: 150, seed: 1942, islandGroups: 3, maxIslandR: 40, minIslandR: 8, seaLevel: 0.38 };
+
+const PACIFIC_BASE_WIDTH = 3000;
+const PACIFIC_BASE_HEIGHT = 2000;
 
 // ========== 真实太平洋地理 (美东日西, 前线分明) ==========
 export const PACIFIC_ISLANDS: Array<{ name: string; x: number; y: number; radius: number; faction: 'player'|'enemy'; baseType: 'naval_base'|'port'|'airfield' }> = [
@@ -36,6 +39,25 @@ export const PACIFIC_ISLANDS: Array<{ name: string; x: number; y: number; radius
   { name: '帕劳', x: 1000, y: 1050, radius: 30, faction: 'enemy', baseType: 'port' },
   { name: '拉包尔', x: 1150, y: 1200, radius: 40, faction: 'enemy', baseType: 'naval_base' },
 ];
+
+function scalePacificIsland(
+  island: typeof PACIFIC_ISLANDS[number],
+  cfg: MapConfig
+): typeof PACIFIC_ISLANDS[number] {
+  const sx = cfg.width / PACIFIC_BASE_WIDTH;
+  const sy = cfg.height / PACIFIC_BASE_HEIGHT;
+  const sr = Math.min(sx, sy);
+  return {
+    ...island,
+    x: Math.round(Math.max(0, Math.min(cfg.width - 1, island.x * sx))),
+    y: Math.round(Math.max(0, Math.min(cfg.height - 1, island.y * sy))),
+    radius: Math.max(cfg.minIslandR, Math.round(island.radius * sr)),
+  };
+}
+
+function theaterFaction(x: number, width: number): 'player' | 'enemy' {
+  return x >= width * 0.5 ? 'player' : 'enemy';
+}
 
 // ========== PRNG + 噪声 ==========
 function mulberry32(a: number) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
@@ -115,12 +137,15 @@ function placeFacilities(cfg: MapConfig, rng: () => number, elevation: number[][
   let fid = 0;
 
   if (realData) {
-    // Use real geography data for facilities
-    for (const rd of realData) {
-      const ic = islands.find(i => i.name === rd.name);
+    const scaledRealData = realData.map((rd) => scalePacificIsland(rd, cfg));
+    // Use scaled geography data for facilities. Match by index because names may be localized.
+    for (let i = 0; i < scaledRealData.length; i++) {
+      const rd = scaledRealData[i];
+      const ic = islands[i] || islands.find(item => item.name === rd.name);
       if (!ic) continue;
-      const bestX = rd.x, bestY = rd.y;
-      const faction = rd.faction;
+      const bestX = Math.round(Math.max(0, Math.min(cfg.width - 1, rd.x)));
+      const bestY = Math.round(Math.max(0, Math.min(cfg.height - 1, rd.y)));
+      const faction = theaterFaction(bestX, cfg.width);
 
       // Port / Naval Base
       const isBase = rd.baseType === 'naval_base';
@@ -160,7 +185,7 @@ function placeFacilities(cfg: MapConfig, rng: () => number, elevation: number[][
       }
     }
     const isBase = ic.radius > 30;
-    facs.push({ id: `f${++fid}`, type: isBase ? 'naval_base' : 'port', name: `${ic.name}${isBase ? '海军基地' : '港口'}`, x: bestX, y: bestY, islandName: ic.name, faction: rng() < 0.5 ? 'player' : 'enemy' });
+    facs.push({ id: `f${++fid}`, type: isBase ? 'naval_base' : 'port', name: `${ic.name}${isBase ? '海军基地' : '港口'}`, x: bestX, y: bestY, islandName: ic.name, faction: theaterFaction(bestX, cfg.width) });
     const faction = facs[facs.length - 1].faction;
     // Airfield close to port
     let afX = bestX, afY = bestY;
@@ -177,10 +202,35 @@ function placeFacilities(cfg: MapConfig, rng: () => number, elevation: number[][
 }
 
 // ========== 主生成函数 ==========
+function generateShippingLanes(facilities: Fac[]): ShippingLane[] {
+  const ports = facilities
+    .filter((f) => f.type === 'port' || f.type === 'naval_base')
+    .sort((a, b) => a.x - b.x);
+  const lanes: ShippingLane[] = [];
+
+  for (let i = 1; i < ports.length; i++) {
+    const from = ports[i - 1];
+    const to = ports[i];
+    lanes.push({
+      id: `lane_${from.id}_${to.id}`,
+      fromId: from.id,
+      toId: to.id,
+      waypoints: [
+        { globalX: from.x, globalY: from.y },
+        { globalX: Math.round((from.x + to.x) / 2), globalY: Math.round((from.y + to.y) / 2) },
+        { globalX: to.x, globalY: to.y },
+      ],
+    });
+  }
+
+  return lanes;
+}
+
 export interface StratMapResult {
   overlay: NavalCellOverlay[][];
   islands: IslandCenter[];
   facilities: Fac[];
+  shippingLanes: ShippingLane[];
   tacticalMaps: Array<{ island: IslandCenter; overlay: NavalCellOverlay[][]; facilities: Fac[] }>;
   stats: { w: number; h: number; deepOcean: number; islands: number; ports: number; facilities: number };
 }
@@ -192,7 +242,10 @@ export function generateStratMap(cfg: MapConfig = STRATEGIC, useRealGeo = true):
   // Use real Pacific geography or procedural
   let islands: IslandCenter[];
   if (useRealGeo) {
-    islands = PACIFIC_ISLANDS.map(pi => ({ x: pi.x, y: pi.y, radius: pi.radius, name: pi.name }));
+    islands = PACIFIC_ISLANDS.map(pi => {
+      const scaled = scalePacificIsland(pi, cfg);
+      return { x: scaled.x, y: scaled.y, radius: scaled.radius, name: scaled.name };
+    });
   } else {
     islands = genIslands(cfg, rng);
   }
@@ -254,8 +307,9 @@ export function generateStratMap(cfg: MapConfig = STRATEGIC, useRealGeo = true):
   }
 
   const flat = overlay.flat();
+  const shippingLanes = generateShippingLanes(facilities);
   return {
-    overlay, islands, facilities, tacticalMaps,
+    overlay, islands, facilities, shippingLanes, tacticalMaps,
     stats: { w: cfg.width, h: cfg.height, deepOcean: flat.filter(c => c.seaZoneType === 'deep_ocean').length, islands: flat.filter(c => c.seaZoneType === 'island').length, ports: flat.filter(c => c.seaZoneType === 'port' || c.seaZoneType === 'naval_base').length, facilities: facilities.length },
   };
 }
