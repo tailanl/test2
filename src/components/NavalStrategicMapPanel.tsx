@@ -38,7 +38,7 @@ export function NavalStrategicMapPanel() {
 
         {/* Facilities */}
         {facilities.map(f => {
-          const fx=f.position.globalX*S, fy=H*S-f.position.globalY*S;
+          const fx=f.x*S, fy=H*S-f.y*S;
           const fc=f.faction==='player'?'#60a5fa':f.faction==='enemy'?'#f87171':'#9ca3af';
           return (
             <g key={f.id}>

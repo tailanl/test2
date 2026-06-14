@@ -11,8 +11,8 @@ import type { NavalIntelState, NavalContact } from '../game/naval/intel/naval-in
 import type { NavalAIReport, NavalAIAction } from '../game/naval/ai/naval-ai-types';
 import type { NavalOperationView, NavalCombatViewport, NavalBattleMap } from '../game/naval/naval-types';
 import type { NavalBattleLogEvent } from '../game/naval/ship/ship-damage';
-import { generateNavalMap, createNavalBattleMap } from '../game/naval/naval-map-adapter';
-import type { NavalFacility, ShippingLane } from '../game/naval/naval-map-generator';
+import { generateStratMap } from '../game/naval/naval-map-adapter';
+import type { NavalFacility, ShippingLane, IslandCenter, StratMapResult } from '../game/naval/naval-map-adapter';
 import { createDefaultIntelState } from '../game/naval/intel/naval-intel-types';
 import { updateNavalIntelState } from '../game/naval/intel/naval-contact-tracker';
 import { decayNavalContacts } from '../game/naval/intel/naval-contact-tracker';
@@ -46,6 +46,9 @@ interface NavalStoreState {
 
   facilities: NavalFacility[];
   shippingLanes: ShippingLane[];
+  islands: IslandCenter[];
+  tacticalMaps: StratMapResult['tacticalMaps'];
+  airOperations: Array<{ id: string; type: 'search'|'strike'|'cap'; x: number; y: number; heading: number; fleetName: string; status: string; aircraft: number }>;
 
   intel: NavalIntelState;
 
@@ -105,6 +108,9 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
   battleMap: undefined,
   facilities: [],
   shippingLanes: [],
+  islands: [],
+  tacticalMaps: [],
+  airOperations: [],
   intel: createDefaultIntelState(),
   reports: [],
   currentTurn: 0,
@@ -136,48 +142,37 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
   createNavalScenario: () => {
     set({ isCreatingScenario: true });
     try {
-    // 独立地图生成 (Pacific island chain)
-    const mapResult = generateNavalMap({
-      width: 1024,
-      height: 1024,
-      seed: Date.now(),
-      islandGroupCount: 8,
-      maxIslandRadius: 60,
-      minIslandRadius: 8,
-      facilityDensity: 0.4,
-      seaLevel: 0.40,
+    // 生成战略地图 + 战术地图
+    const mapResult = generateStratMap({
+      width: 3000, height: 2000, seed: Date.now(),
+      islandGroups: 12, maxIslandR: 80, minIslandR: 12, seaLevel: 0.42,
     });
 
     const overlay = mapResult.overlay;
-    const tileW = overlay[0]?.length ?? 1024;
-    const tileH = overlay.length;
 
-    // 舰队位置：放在 player 和 enemy 的港口附近
-    const playerPorts = mapResult.facilities.filter((f) => f.faction === 'player' && (f.type === 'port' || f.type === 'naval_base'));
-    const enemyPorts = mapResult.facilities.filter((f) => f.faction === 'enemy' && (f.type === 'port' || f.type === 'naval_base'));
-
-    const playerCX = playerPorts[0]?.position.globalX ?? Math.floor(tileW * 0.35);
-    const playerCY = playerPorts[0]?.position.globalY ?? Math.floor(tileH * 0.50);
-    const enemyCX = enemyPorts[0]?.position.globalX ?? Math.floor(tileW * 0.60);
-    const enemyCY = enemyPorts[0]?.position.globalY ?? Math.floor(tileH * 0.55);
+    // 舰队放港口附近
+    const pPorts = mapResult.facilities.filter(f => f.faction === 'player' && (f.type === 'port' || f.type === 'naval_base'));
+    const ePorts = mapResult.facilities.filter(f => f.faction === 'enemy' && (f.type === 'port' || f.type === 'naval_base'));
+    const pcx = pPorts[0]?.x ?? 800, pcy = pPorts[0]?.y ?? 1000;
+    const ecx = ePorts[0]?.x ?? 1500, ecy = ePorts[0]?.y ?? 1000;
 
     // Create player fleet with varied headings and speeds for visible movement
     const playerShips: NavalShip[] = [
-      createShip('fleet_carrier', 'player', 'CV Enterprise', playerCX, playerCY, 45, 25, 'carrier'),
-      createShip('heavy_cruiser', 'player', 'CA Northampton', playerCX - 15, playerCY - 8, 30, 28, 'screen'),
-      createShip('heavy_cruiser', 'player', 'CA Portland', playerCX + 15, playerCY + 8, 50, 28, 'screen'),
-      createShip('destroyer', 'player', 'DD Fletcher', playerCX - 22, playerCY + 12, 20, 32, 'screen'),
-      createShip('destroyer', 'player', 'DD O\'Bannon', playerCX + 25, playerCY - 10, 55, 30, 'screen'),
-      createShip('destroyer', 'player', 'DD Nicholas', playerCX + 8, playerCY - 20, 70, 30, 'picket'),
+      createShip('fleet_carrier', 'player', 'CV Enterprise', pcx, pcy, 45, 25, 'carrier'),
+      createShip('heavy_cruiser', 'player', 'CA Northampton', pcx - 15, pcy - 8, 30, 28, 'screen'),
+      createShip('heavy_cruiser', 'player', 'CA Portland', pcx + 15, pcy + 8, 50, 28, 'screen'),
+      createShip('destroyer', 'player', 'DD Fletcher', pcx - 22, pcy + 12, 20, 32, 'screen'),
+      createShip('destroyer', 'player', 'DD O\'Bannon', pcx + 25, pcy - 10, 55, 30, 'screen'),
+      createShip('destroyer', 'player', 'DD Nicholas', pcx + 8, pcy - 20, 70, 30, 'picket'),
     ];
 
     // Create enemy fleet
     const enemyShips: NavalShip[] = [
-      createShip('battleship', 'enemy', 'BB Yamato', enemyCX, enemyCY, 210, 20, 'surface_combatant'),
-      createShip('heavy_cruiser', 'enemy', 'CA Tone', enemyCX + 14, enemyCY - 8, 195, 22, 'surface_combatant'),
-      createShip('light_cruiser', 'enemy', 'CL Sendai', enemyCX - 12, enemyCY + 10, 220, 24, 'screen'),
-      createShip('destroyer', 'enemy', 'DD Kagero', enemyCX + 20, enemyCY + 5, 185, 28, 'torpedo_attack'),
-      createShip('destroyer', 'enemy', 'DD Shiranui', enemyCX - 18, enemyCY - 8, 215, 28, 'torpedo_attack'),
+      createShip('battleship', 'enemy', 'BB Yamato', ecx, ecy, 210, 20, 'surface_combatant'),
+      createShip('heavy_cruiser', 'enemy', 'CA Tone', ecx + 14, ecy - 8, 195, 22, 'surface_combatant'),
+      createShip('light_cruiser', 'enemy', 'CL Sendai', ecx - 12, ecy + 10, 220, 24, 'screen'),
+      createShip('destroyer', 'enemy', 'DD Kagero', ecx + 20, ecy + 5, 185, 28, 'torpedo_attack'),
+      createShip('destroyer', 'enemy', 'DD Shiranui', ecx - 18, ecy - 8, 215, 28, 'torpedo_attack'),
     ];
 
     // Set rudder so they gently turn (formation feel)
@@ -190,7 +185,7 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
       name: 'Task Force 16',
       faction: 'player',
       type: 'carrier_task_force',
-      position: { regionX: 0, regionY: 0, chunkX: Math.floor(tileW * 0.35 / 32), chunkY: Math.floor(tileH * 0.50 / 32), globalX: playerCX, globalY: playerCY },
+      position: { regionX: 0, regionY: 0, chunkX: Math.floor(overlay[0]?.length * 0.35 / 32), chunkY: Math.floor(overlay.length * 0.50 / 32), globalX: pcx, globalY: pcy },
       ships: playerShips,
       command: {
         controller: 'player_direct',
@@ -210,7 +205,7 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
       name: 'Enemy Surface Group',
       faction: 'enemy',
       type: 'surface_action_group',
-      position: { regionX: 0, regionY: 0, chunkX: Math.floor(tileW * 0.60 / 32), chunkY: Math.floor(tileH * 0.55 / 32), globalX: enemyCX, globalY: enemyCY },
+      position: { regionX: 0, regionY: 0, chunkX: Math.floor(overlay[0]?.length * 0.60 / 32), chunkY: Math.floor(overlay.length * 0.55 / 32), globalX: ecx, globalY: ecy },
       ships: enemyShips,
       command: {
         controller: 'enemy_ai',
@@ -227,7 +222,10 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
     set({
       overlay,
       facilities: mapResult.facilities,
-      shippingLanes: mapResult.shippingLanes,
+      shippingLanes: [],
+      islands: mapResult.islands,
+      tacticalMaps: mapResult.tacticalMaps,
+      airOperations: [],
       fleets: [playerFleet, enemyFleet],
       intel: { ...createDefaultIntelState() },
       reports: [],
@@ -260,20 +258,7 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
     const state = get();
     const fleet = state.fleets.find((f) => f.id === fleetId);
     if (!fleet || !state.overlay) return;
-
-    const battleMap = createNavalBattleMap({
-      overlay: state.overlay,
-      centerGlobalX: fleet.position.globalX,
-      centerGlobalY: fleet.position.globalY,
-      width: 64,
-      height: 48,
-    });
-
-    set({
-      selectedFleetId: fleetId,
-      navalMode: 'combat',
-      battleMap,
-    });
+    set({ selectedFleetId: fleetId });
   },
 
   submitNavalCommand: (_text: string, _fleetIds: string[]) => {

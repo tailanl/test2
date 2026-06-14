@@ -10,6 +10,13 @@ export interface WorldPosition {
   globalY: number;
 }
 
+export interface ShippingLane {
+  id: string;
+  fromId: string;
+  toId: string;
+  waypoints: WorldPosition[];
+}
+
 // ===== 海军海区类型 =====
 
 export type NavalSeaZoneType =

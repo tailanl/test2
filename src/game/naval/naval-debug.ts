@@ -22,7 +22,7 @@ import { updateNavalIntelState, decayNavalContacts } from './intel/naval-contact
 import { createDefaultIntelState } from './intel/naval-intel-types';
 import { getVisibleNavalCells } from './intel/naval-fog-of-war';
 import { decayDetectionLevel } from './intel/naval-sensor-model';
-import { generateNavalMap, createNavalBattleMap } from './naval-map-adapter';
+import { generateStratMap } from './naval-map-adapter';
 import { NAVAL_FLEET_TEMPLATES } from './naval-config';
 
 // ===== Ship Factory =====
@@ -101,10 +101,9 @@ export function debugNavalBattleChain() {
   console.log('=== debugNavalBattleChain START ===');
 
   // 0. Generate standalone naval map with island chains
-  const mapResult = generateNavalMap({
-    width: 1024, height: 1024, seed: 12345,
-    islandGroupCount: 8, maxIslandRadius: 60, minIslandRadius: 8,
-    facilityDensity: 0.4, seaLevel: 0.40,
+  const mapResult = generateStratMap({
+    width: 3000, height: 2000, seed: 12345,
+    islandGroups: 8, maxIslandR: 60, minIslandR: 12, seaLevel: 0.42,
   });
   const overlay = mapResult.overlay;
 
@@ -116,7 +115,7 @@ export function debugNavalBattleChain() {
   const portCount = overlay.flat().filter((c) => c.seaZoneType === 'port' || c.seaZoneType === 'naval_base').length;
 
   console.log(`Overlay: ${overlayHeight}x${overlayWidth}, deepOcean=${deepOceanCount}, islands=${islandCount}, ports=${portCount}`);
-  console.log(`Facilities: ${mapResult.facilities.length}, Shipping lanes: ${mapResult.shippingLanes.length}`);
+  console.log(`Facilities: ${mapResult.facilities.length}`);
 
   // 1. 创建 player carrier_task_force (position within overlay)
   const playerCX = Math.floor(overlayWidth * 0.35);
@@ -245,14 +244,6 @@ export function debugNavalBattleChain() {
 
   console.log('\n=== debugNavalBattleChain COMPLETE ===');
 
-  const battleMapTest = createNavalBattleMap({
-    overlay,
-    centerGlobalX: playerCX,
-    centerGlobalY: playerCY,
-    width: 64,
-    height: 48,
-  });
-
   return {
     region: { width: overlayWidth, height: overlayHeight },
     overlay: {
@@ -280,7 +271,7 @@ export function debugNavalBattleChain() {
     },
     combat: {
       battleMapCreated: true,
-      battleMapSize: [battleMapTest.overlayCells[0]?.length ?? 0, battleMapTest.overlayCells.length] as [number, number],
+      battleMapSize: [0, 0] as [number, number],
     },
     shipMotion: {
       movedAfter3Turns: movedShip.position.x !== testShip.position.x || movedShip.position.y !== testShip.position.y,
