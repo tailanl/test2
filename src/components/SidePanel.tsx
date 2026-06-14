@@ -88,6 +88,19 @@ export function SidePanel() {
       }));
       useNavalStore.setState({ airOperations: ao2.filter(a => a.x < 2800 && a.y < 1800).slice(-20) });
 
+      // 轰炸机场: 攻击机经过敌方机场时造成破坏
+      const strikeOps = ao2.filter(a => a.type === 'strike');
+      for (const so of strikeOps) {
+        for (const af of landAfs) {
+          const dx = so.x - af.x, dy = so.y - af.y;
+          if (Math.abs(dx) < 30 && Math.abs(dy) < 30 && af.faction !== 'player' && Math.random() < 0.4) {
+            af.bombers = Math.max(0, af.bombers - 2);
+            af.fighters = Math.max(0, af.fighters - 1);
+            addLog(`  💣 轰炸 ${af.name}! 剩余:F${af.fighters} B${af.bombers}`);
+          }
+        }
+      }
+
       advanceNavalTurn();
       await sleep(50);
 

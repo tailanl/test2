@@ -14,33 +14,27 @@ export interface MapConfig {
 export const STRATEGIC: MapConfig = { width: 3000, height: 2000, seed: 1942, islandGroups: 12, maxIslandR: 80, minIslandR: 12, seaLevel: 0.42 };
 export const TACTICAL: MapConfig = { width: 200, height: 150, seed: 1942, islandGroups: 3, maxIslandR: 40, minIslandR: 8, seaLevel: 0.38 };
 
-// ========== 真实太平洋地理 ==========
+// ========== 真实太平洋地理 (美东日西, 前线分明) ==========
 export const PACIFIC_ISLANDS: Array<{ name: string; x: number; y: number; radius: number; faction: 'player'|'enemy'; baseType: 'naval_base'|'port'|'airfield' }> = [
-  // 日本本土及周边 (敌方)
+  // ──── 美军 (东侧/中太平洋) ────
+  { name: '珍珠港', x: 2550, y: 1050, radius: 80, faction: 'player', baseType: 'naval_base' },
+  { name: '中途岛', x: 2050, y: 750, radius: 25, faction: 'player', baseType: 'airfield' },
+  { name: '威克岛', x: 1750, y: 820, radius: 20, faction: 'player', baseType: 'airfield' },
+  { name: '夸贾林', x: 1600, y: 920, radius: 30, faction: 'player', baseType: 'airfield' },
+  { name: '塔拉瓦', x: 1850, y: 1150, radius: 20, faction: 'player', baseType: 'airfield' },
+  { name: '关岛', x: 980, y: 880, radius: 40, faction: 'player', baseType: 'naval_base' },
+  { name: '塞班岛', x: 920, y: 840, radius: 35, faction: 'player', baseType: 'airfield' },
+  { name: '莱特湾', x: 700, y: 1100, radius: 45, faction: 'player', baseType: 'naval_base' },
+  { name: '瓜达尔卡纳尔', x: 1250, y: 1350, radius: 35, faction: 'player', baseType: 'airfield' },
+  // ──── 日军 (西侧/北太平洋) ────
   { name: '横须贺', x: 350, y: 480, radius: 70, faction: 'enemy', baseType: 'naval_base' },
   { name: '吴港', x: 280, y: 550, radius: 50, faction: 'enemy', baseType: 'naval_base' },
   { name: '冲绳', x: 480, y: 620, radius: 40, faction: 'enemy', baseType: 'naval_base' },
   { name: '硫磺岛', x: 650, y: 700, radius: 25, faction: 'enemy', baseType: 'airfield' },
-  // 马里亚纳群岛
-  { name: '塞班岛', x: 850, y: 850, radius: 35, faction: 'enemy', baseType: 'naval_base' },
-  { name: '关岛', x: 900, y: 900, radius: 40, faction: 'player', baseType: 'naval_base' },
-  // 加罗林群岛
-  { name: '特鲁克', x: 1050, y: 950, radius: 45, faction: 'enemy', baseType: 'naval_base' },
-  { name: '帕劳', x: 900, y: 1050, radius: 30, faction: 'enemy', baseType: 'port' },
-  // 所罗门群岛
-  { name: '拉包尔', x: 1100, y: 1200, radius: 40, faction: 'enemy', baseType: 'naval_base' },
-  { name: '瓜达尔卡纳尔', x: 1250, y: 1350, radius: 35, faction: 'player', baseType: 'airfield' },
-  // 马绍尔群岛
-  { name: '夸贾林', x: 1650, y: 920, radius: 25, faction: 'enemy', baseType: 'port' },
-  // 中太平洋
-  { name: '威克岛', x: 1750, y: 820, radius: 20, faction: 'player', baseType: 'airfield' },
-  { name: '中途岛', x: 2050, y: 750, radius: 25, faction: 'player', baseType: 'airfield' },
-  // 夏威夷 (玩家大本营)
-  { name: '珍珠港', x: 2550, y: 1050, radius: 80, faction: 'player', baseType: 'naval_base' },
-  // 菲律宾
-  { name: '莱特湾', x: 650, y: 1150, radius: 45, faction: 'player', baseType: 'port' },
-  // 吉尔伯特群岛
-  { name: '塔拉瓦', x: 1850, y: 1180, radius: 20, faction: 'enemy', baseType: 'airfield' },
+  { name: '台北', x: 440, y: 750, radius: 30, faction: 'enemy', baseType: 'airfield' },
+  { name: '特鲁克', x: 1080, y: 950, radius: 45, faction: 'enemy', baseType: 'naval_base' },
+  { name: '帕劳', x: 1000, y: 1050, radius: 30, faction: 'enemy', baseType: 'port' },
+  { name: '拉包尔', x: 1150, y: 1200, radius: 40, faction: 'enemy', baseType: 'naval_base' },
 ];
 
 // ========== PRNG + 噪声 ==========
