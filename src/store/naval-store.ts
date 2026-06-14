@@ -161,24 +161,29 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
     const enemyCX = enemyPorts[0]?.position.globalX ?? Math.floor(tileW * 0.60);
     const enemyCY = enemyPorts[0]?.position.globalY ?? Math.floor(tileH * 0.55);
 
-    // Create player fleet
+    // Create player fleet with varied headings and speeds for visible movement
     const playerShips: NavalShip[] = [
-      createShip('fleet_carrier', 'player', 'CV Enterprise', playerCX, playerCY, 0, 20, 'carrier'),
-      createShip('heavy_cruiser', 'player', 'CA Northampton', playerCX - 10, playerCY - 10, 0, 20, 'screen'),
-      createShip('heavy_cruiser', 'player', 'CA Portland', playerCX + 10, playerCY + 10, 0, 20, 'screen'),
-      createShip('destroyer', 'player', 'DD Fletcher', playerCX - 15, playerCY + 5, 0, 20, 'screen'),
-      createShip('destroyer', 'player', 'DD O\'Bannon', playerCX + 15, playerCY - 5, 0, 20, 'screen'),
-      createShip('destroyer', 'player', 'DD Nicholas', playerCX + 5, playerCY - 15, 0, 20, 'picket'),
+      createShip('fleet_carrier', 'player', 'CV Enterprise', playerCX, playerCY, 45, 25, 'carrier'),
+      createShip('heavy_cruiser', 'player', 'CA Northampton', playerCX - 15, playerCY - 8, 30, 28, 'screen'),
+      createShip('heavy_cruiser', 'player', 'CA Portland', playerCX + 15, playerCY + 8, 50, 28, 'screen'),
+      createShip('destroyer', 'player', 'DD Fletcher', playerCX - 22, playerCY + 12, 20, 32, 'screen'),
+      createShip('destroyer', 'player', 'DD O\'Bannon', playerCX + 25, playerCY - 10, 55, 30, 'screen'),
+      createShip('destroyer', 'player', 'DD Nicholas', playerCX + 8, playerCY - 20, 70, 30, 'picket'),
     ];
 
     // Create enemy fleet
     const enemyShips: NavalShip[] = [
-      createShip('battleship', 'enemy', 'BB Yamato', enemyCX, enemyCY, 180, 15, 'surface_combatant'),
-      createShip('heavy_cruiser', 'enemy', 'CA Tone', enemyCX + 10, enemyCY - 10, 180, 15, 'surface_combatant'),
-      createShip('light_cruiser', 'enemy', 'CL Sendai', enemyCX - 10, enemyCY + 10, 180, 15, 'screen'),
-      createShip('destroyer', 'enemy', 'DD Kagero', enemyCX + 15, enemyCY + 5, 180, 15, 'torpedo_attack'),
-      createShip('destroyer', 'enemy', 'DD Shiranui', enemyCX - 15, enemyCY - 5, 180, 15, 'torpedo_attack'),
+      createShip('battleship', 'enemy', 'BB Yamato', enemyCX, enemyCY, 210, 20, 'surface_combatant'),
+      createShip('heavy_cruiser', 'enemy', 'CA Tone', enemyCX + 14, enemyCY - 8, 195, 22, 'surface_combatant'),
+      createShip('light_cruiser', 'enemy', 'CL Sendai', enemyCX - 12, enemyCY + 10, 220, 24, 'screen'),
+      createShip('destroyer', 'enemy', 'DD Kagero', enemyCX + 20, enemyCY + 5, 185, 28, 'torpedo_attack'),
+      createShip('destroyer', 'enemy', 'DD Shiranui', enemyCX - 18, enemyCY - 8, 215, 28, 'torpedo_attack'),
     ];
+
+    // Set rudder so they gently turn (formation feel)
+    for (const ship of [...playerShips]) {
+      if (ship.shipClass === 'destroyer') { ship.rudderDeg = -5; ship.targetSpeedKts = 28; }
+    }
 
     const playerFleet: StrategicFleet = {
       id: 'player_ctf_1',

@@ -237,9 +237,9 @@ export function updateShipMotion(
     result.headingDeg = headingDeg;
   }
 
-  // 4. 根据航向和速度计算移动距离
+  // 4. 根据航向和速度计算移动距离（加速版，让每turn移动更明显）
   const avgSpeed = result.speedKts;
-  const distancePerTurn = avgSpeed * 0.02; // 每节每秒约 0.02 单位距离（每turn）
+  const distancePerTurn = avgSpeed * 0.15; // 0.15 units per knot per turn (was 0.02)
   const totalDistance = distancePerTurn * deltaTurns;
 
   // 使用平均航向计算位移
