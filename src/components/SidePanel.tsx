@@ -85,12 +85,69 @@ export function SidePanel() {
           addLog(`  ✈️ 扇形搜索: ${dirs.length}方向, 航母+陆基`);
         }
         if ((resp.includes('打击') || resp.includes('攻击')) && pf) {
-          // Strike toward enemy direction (west/northwest for player vs Japan)
           const enemyDir = pf.position.globalX > 1500 ? 270 : 315;
           const rad = enemyDir * Math.PI / 180;
           useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations,
             { id: `st_${t}`, type: 'strike', x: pf.position.globalX + Math.cos(rad) * 40, y: pf.position.globalY + Math.sin(rad) * 40, heading: enemyDir, fleetName: pf.name, status: '进攻中', aircraft: 6 }
           ]}));
+        }
+
+        // === 舰队移动 ===
+        if (pf) {
+          let moveDir = 0; let moveDist = 0;
+
+          // 解析LLM的移动命令
+          if (resp.includes('拦截') || resp.includes('追击') || resp.includes('接近')) moveDist = 60;
+          else if (resp.includes('撤退') || resp.includes('撤离') || resp.includes('退避')) moveDist = -40;
+          else if (resp.includes('机动') || resp.includes('前进') || resp.includes('移动')) moveDist = 40;
+
+          // 方向
+          if (resp.includes('东北') || resp.includes('NE')) moveDir = 45;
+          else if (resp.includes('西北') || resp.includes('NW')) moveDir = 315;
+          else if (resp.includes('东南') || resp.includes('SE')) moveDir = 135;
+          else if (resp.includes('西南') || resp.includes('SW')) moveDir = 225;
+          else if (resp.includes('东') || resp.includes('east')) moveDir = 90;
+          else if (resp.includes('西') || resp.includes('west')) moveDir = 270;
+          else if (resp.includes('南') || resp.includes('south')) moveDir = 180;
+          else if (resp.includes('北') || resp.includes('north')) moveDir = 0;
+
+          // 无方向但有移动意愿 → 朝敌方方向
+          if (moveDist !== 0 && moveDir === 0) {
+            const efPos2 = s.fleets.find(f => f.faction === 'enemy');
+            if (efPos2) moveDir = Math.atan2(efPos2.position.globalY - pf.position.globalY, efPos2.position.globalX - pf.position.globalX) * 180 / Math.PI;
+            else moveDir = 270; // default west toward Japan
+          }
+
+          if (moveDist !== 0) {
+            const rad2 = moveDir * Math.PI / 180;
+            const oldX = pf.position.globalX, oldY = pf.position.globalY;
+            pf.position.globalX += Math.round(Math.cos(rad2) * moveDist);
+            pf.position.globalY += Math.round(Math.sin(rad2) * moveDist);
+            // Also move ships
+            for (const sh of pf.ships) {
+              sh.position.x += Math.round(Math.cos(rad2) * moveDist);
+              sh.position.y += Math.round(Math.sin(rad2) * moveDist);
+              sh.headingDeg = moveDir;
+            }
+            addLog(`  🚢 舰队机动: (${oldX},${oldY})→(${pf.position.globalX},${pf.position.globalY}) ${moveDist}格 ${['N','NE','E','SE','S','SW','W','NW'][Math.round(moveDir/45)%8]}`);
+          }
+        }
+
+        // 敌方舰队自动向玩家靠近
+        const ef2 = s.fleets.find(f => f.faction === 'enemy');
+        if (ef2 && pf) {
+          const edx = pf.position.globalX - ef2.position.globalX;
+          const edy = pf.position.globalY - ef2.position.globalY;
+          const edist = Math.sqrt(edx*edx + edy*edy);
+          if (edist > 50) {
+            const moveStep = Math.min(30, edist * 0.3);
+            ef2.position.globalX += Math.round(edx / edist * moveStep);
+            ef2.position.globalY += Math.round(edy / edist * moveStep);
+            for (const sh of ef2.ships) {
+              sh.position.x += Math.round(edx / edist * moveStep);
+              sh.position.y += Math.round(edy / edist * moveStep);
+            }
+          }
         }
       } catch { addLog('🤖 AI离线'); }
 

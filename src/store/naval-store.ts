@@ -161,8 +161,8 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
 
     // Create player fleet with varied headings and speeds for visible movement
     const playerShips: NavalShip[] = [
-      createShip('fleet_carrier', 'player', 'CV Enterprise', pcx, pcy, 45, 25, 'carrier'),
-      createShip('heavy_cruiser', 'player', 'CA Northampton', pcx - 15, pcy - 8, 30, 28, 'screen'),
+      createShip('fleet_carrier', 'player', 'CV Enterprise', pcx, pcy, 270, 25, 'carrier'),  // 向西朝日本
+      createShip('heavy_cruiser', 'player', 'CA Northampton', pcx - 15, pcy - 8, 270, 28, 'screen'),
       createShip('heavy_cruiser', 'player', 'CA Portland', pcx + 15, pcy + 8, 50, 28, 'screen'),
       createShip('destroyer', 'player', 'DD Fletcher', pcx - 22, pcy + 12, 20, 32, 'screen'),
       createShip('destroyer', 'player', 'DD O\'Bannon', pcx + 25, pcy - 10, 55, 30, 'screen'),
@@ -296,8 +296,8 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
     for (const fleet of fleets) {
       for (const ship of fleet.ships) {
         const moved = updateShipMotion(ship, 1);
-        moved.position.x = ship.position.x + (moved.position.x - ship.position.x) * 3;
-        moved.position.y = ship.position.y + (moved.position.y - ship.position.y) * 3;
+        moved.position.x = ship.position.x + (moved.position.x - ship.position.x) * 5;
+        moved.position.y = ship.position.y + (moved.position.y - ship.position.y) * 5;
         updatedShipMap[ship.id] = moved;
       }
     }
@@ -310,7 +310,7 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
       const efx = eFleet.position.globalX, efy = eFleet.position.globalY;
       const stratDist = Math.sqrt((pfx-efx)**2 + (pfy-efy)**2);
 
-      if (stratDist < 150) {
+      if (stratDist < 300) {
         // Fleets close: pull ships together for engagement
         const midX = (pfx + efx) / 2, midY = (pfy + efy) / 2;
         for (const ship of pFleet.ships) {
