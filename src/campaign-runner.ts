@@ -6,6 +6,7 @@ import { updateShipMotion } from './game/naval/ship/ship-motion';
 import { applyNavalDamage } from './game/naval/ship/ship-damage';
 import { createDefaultIntelState } from './game/naval/intel/naval-intel-types';
 import { updateNavalIntelState, decayNavalContacts } from './game/naval/intel/naval-contact-tracker';
+import { detectNavalTarget } from './game/naval/intel/naval-visibility';
 import { createShipForClass } from './game/naval/naval-debug';
 import { createDefaultAircraft } from './game/naval/air/aircraft-types';
 import { updateAircraftMotion } from './game/naval/air/aircraft-motion';
@@ -111,59 +112,96 @@ class Game {
   }
 
   doCombat() {
+    const env = { timeOfDay: 'day' as const, weather: 'clear' as const, seaState: 1 as const, smoke: 0 };
+
+    // Check what each player ship can detect
+    const playerDetects: Map<string, Array<{ enemy: NavalShip; sensor: string; level: string }>> = new Map();
     for (const ps of this.pFleet.ships) {
+      const detected: Array<{ enemy: NavalShip; sensor: string; level: string }> = [];
       for (const es of this.eFleet.ships) {
         const dx = ps.position.x - es.position.x, dy = ps.position.y - es.position.y;
         const dist = Math.sqrt(dx*dx+dy*dy);
-        if (dist < 20) {
-          const torp = ps.shipClass === 'destroyer' && dist < 10 && Math.random() < 0.5;
-          const wt = torp ? 'torpedo_hit' : 'shell_hit';
-          const pen = torp ? 60 : 40; const ep = torp ? 35 : 15;
-          const r = applyNavalDamage({ ship: es, hitLocation: 'midships', damageType: wt, penetration: pen, explosivePower: ep, underwater: torp, turn: this.turn });
-          es.damage = r.ship.damage;
-          for (const e of r.events) {
-            this.events.push(e.description);
-            if (es.damage.status === 'sinking' || es.damage.status === 'sunk') {
-              const already = this.kills.find(k => k.victim === es.name);
-              if (!already) this.kills.push({ victim: es.name, victimClass: es.shipClass, killer: ps.name, killerClass: ps.shipClass, weapon: torp ? 'Torpedo' : 'Naval Gun', turn: this.turn, desc: `${ps.name} ${torp?'torpedoed':'shelled'} ${es.name}` });
-            }
-          }
-          if (r.events.length > 0) console.log(`  ⚔️ ${ps.name} → ${es.name}: ${dist.toFixed(0)}u ${torp?'TORPEDO':'GUNS'}`);
+
+        const vis = detectNavalTarget({ observer: ps, target: es, sensorType: 'visual', environment: env, distance: dist, lineOfSightBlocked: false });
+        const radar = detectNavalTarget({ observer: ps, target: es, sensorType: 'surface_radar', environment: env, distance: dist, lineOfSightBlocked: false });
+        const sonar = detectNavalTarget({ observer: ps, target: es, sensorType: 'sonar', environment: env, distance: dist, lineOfSightBlocked: false });
+
+        if (vis.success && vis.detectionLevel !== 'none') {
+          detected.push({ enemy: es, sensor: 'visual', level: vis.detectionLevel });
+        } else if (radar.success && radar.detectionLevel !== 'none') {
+          detected.push({ enemy: es, sensor: 'radar', level: radar.detectionLevel });
+        } else if (sonar.success && sonar.detectionLevel !== 'none') {
+          detected.push({ enemy: es, sensor: 'sonar', level: sonar.detectionLevel });
         }
-        if (dist < 18 && Math.random() < 0.2) {
-          const r = applyNavalDamage({ ship: ps, hitLocation: 'midships', damageType: 'shell_hit', penetration: 25, explosivePower: 8, underwater: false, turn: this.turn });
-          ps.damage = r.ship.damage;
-          for (const e of r.events) {
-            this.events.push(e.description);
-            if (ps.damage.status === 'sinking' || ps.damage.status === 'sunk') {
-              const already = this.kills.find(k => k.victim === ps.name);
-              if (!already) this.kills.push({ victim: ps.name, victimClass: ps.shipClass, killer: es.name, killerClass: es.shipClass, weapon: 'Naval Gun', turn: this.turn, desc: `${es.name} shelled ${ps.name} to sinking` });
-            }
-          }
+      }
+      if (detected.length > 0) playerDetects.set(ps.name, detected);
+    }
+
+    // Only fire at detected targets, and only with sufficient detection level
+    for (const [psName, detected] of playerDetects) {
+      const ps = this.pFleet.ships.find(s => s.name === psName)!;
+      for (const d of detected) {
+        const es = d.enemy;
+        const dist = Math.sqrt((ps.position.x-es.position.x)**2 + (ps.position.y-es.position.y)**2);
+
+        // Need classified+ for guns, detected+ for torpedoes
+        const canGun = d.level === 'classified' || d.level === 'identified' || d.level === 'tracked';
+        const canTorp = (d.level === 'detected' || canGun) && ps.shipClass === 'destroyer' && dist < 10;
+        const fireChance = d.level === 'tracked' ? 0.8 : d.level === 'identified' ? 0.7 : d.level === 'classified' ? 0.5 : d.level === 'detected' ? 0.3 : 0;
+
+        if (canTorp && Math.random() < fireChance) {
+          const r = applyNavalDamage({ ship: es, hitLocation: 'midships', damageType: 'torpedo_hit', penetration: 60, explosivePower: 35, underwater: true, turn: this.turn });
+          es.damage = r.ship.damage;
+          for (const e of r.events) this.events.push(`TORPEDO [${d.sensor}:${d.level}] ${ps.name} → ${es.name}: ${e.description}`);
+          this.recordKill(es, ps, 'Torpedo');
+          console.log(`  🎯 ${ps.name} [${d.sensor}:${d.level}] → ${es.name}: TORPEDO @ ${dist.toFixed(0)}u`);
+        } else if (canGun && dist < 20 && Math.random() < fireChance * 0.7) {
+          const r = applyNavalDamage({ ship: es, hitLocation: 'midships', damageType: 'shell_hit', penetration: 40, explosivePower: 15, underwater: false, turn: this.turn });
+          es.damage = r.ship.damage;
+          for (const e of r.events) this.events.push(`GUNS [${d.sensor}:${d.level}] ${ps.name} → ${es.name}: ${e.description}`);
+          this.recordKill(es, ps, 'Naval Gun');
+          console.log(`  🎯 ${ps.name} [${d.sensor}:${d.level}] → ${es.name}: GUNS @ ${dist.toFixed(0)}u`);
         }
       }
     }
-    // Aircraft attacks
-    for (const ac of this.pAircraft) {
-      for (const es of this.eFleet.ships) {
-        const dx = ac.position.x - es.position.x, dy = ac.position.y - es.position.y;
+
+    // Enemy retaliates: check what they can see
+    const enemyDetects: Map<string, Array<{ enemy: NavalShip; sensor: string; level: string }>> = new Map();
+    for (const es of this.eFleet.ships) {
+      const detected: Array<{ enemy: NavalShip; sensor: string; level: string }> = [];
+      for (const ps of this.pFleet.ships) {
+        const dx = es.position.x - ps.position.x, dy = es.position.y - ps.position.y;
         const dist = Math.sqrt(dx*dx+dy*dy);
-        const cone = isTargetInForwardCone({ attackerPosition: ac.position, attackerHeadingDeg: ac.headingDeg, targetPosition: es.position, forwardArcDeg: 25, minRange: 1, maxRange: 15 });
-        if (cone.inCone && dist < 15 && Math.random() < 0.4 && ac.ammo.bombs > 0) {
-          ac.ammo.bombs--;
-          const r = applyNavalDamage({ ship: es, hitLocation: 'superstructure', damageType: 'bomb_hit', penetration: 60, explosivePower: 50, underwater: false, turn: this.turn });
-          es.damage = r.ship.damage;
-          for (const e of r.events) {
-            this.events.push(`✈️ ${e.description}`);
-            if (es.damage.status === 'sinking' || es.damage.status === 'sunk') {
-              const already = this.kills.find(k => k.victim === es.name);
-              if (!already) this.kills.push({ victim: es.name, victimClass: es.shipClass, killer: 'Dive Bomber', killerClass: 'Aircraft', weapon: 'Bomb (1000lb)', turn: this.turn, desc: `Dive bomber bombed ${es.name}` });
-            }
-          }
-          if (r.events.length > 0) console.log(`  ✈️ Dive Bomber → ${es.name}: BOMB`);
+        const vis = detectNavalTarget({ observer: es, target: ps, sensorType: 'visual', environment: env, distance: dist, lineOfSightBlocked: false });
+        const radar = detectNavalTarget({ observer: es, target: ps, sensorType: 'surface_radar', environment: env, distance: dist, lineOfSightBlocked: false });
+        if ((vis.success && vis.detectionLevel !== 'none') || (radar.success && radar.detectionLevel !== 'none')) {
+          detected.push({ enemy: ps, sensor: vis.success ? 'visual' : 'radar', level: vis.success ? vis.detectionLevel : radar.detectionLevel });
+        }
+      }
+      if (detected.length > 0) enemyDetects.set(es.name, detected);
+    }
+
+    for (const [esName, detected] of enemyDetects) {
+      const es = this.eFleet.ships.find(s => s.name === esName)!;
+      for (const d of detected) {
+        const ps = d.enemy;
+        const dist = Math.sqrt((es.position.x-ps.position.x)**2 + (es.position.y-ps.position.y)**2);
+        const level = d.level;
+        if ((level === 'classified' || level === 'identified' || level === 'tracked') && dist < 20 && Math.random() < 0.4) {
+          const r = applyNavalDamage({ ship: ps, hitLocation: 'midships', damageType: 'shell_hit', penetration: 30, explosivePower: 10, underwater: false, turn: this.turn });
+          ps.damage = r.ship.damage;
+          for (const e of r.events) this.events.push(`RETURN [${d.sensor}:${d.level}] ${es.name} → ${ps.name}: ${e.description}`);
+          this.recordKill(ps, es, 'Naval Gun');
+          console.log(`  🔫 ${es.name} [${d.sensor}:${d.level}] → ${ps.name}: RETURN FIRE @ ${dist.toFixed(0)}u`);
         }
       }
     }
+  }
+
+  recordKill(victim: NavalShip, killer: NavalShip, weapon: string) {
+    if (victim.damage.status !== 'sinking' && victim.damage.status !== 'sunk') return;
+    if (this.kills.find(k => k.victim === victim.name)) return;
+    this.kills.push({ victim: victim.name, victimClass: victim.shipClass, killer: killer.name, killerClass: killer.shipClass, weapon, turn: this.turn, desc: `${killer.name} ${weapon} sank ${victim.name}` });
   }
 }
 
@@ -178,6 +216,22 @@ async function main() {
 
     // Launch aircraft on turn 2+
     if (t >= 2) { g.launchAircraft(g.pFleet, 3, 'p'); g.launchAircraft(g.eFleet, 2, 'e'); }
+
+    // Detection summary before LLM
+    let detReport = '';
+    for (const ps of g.pFleet.ships) {
+      for (const es of g.eFleet.ships) {
+        const dx = ps.position.x - es.position.x, dy = ps.position.y - es.position.y;
+        const dist = Math.sqrt(dx*dx+dy*dy);
+        const vis = detectNavalTarget({ observer: ps, target: es, sensorType: 'visual', environment: { timeOfDay: 'day', weather: 'clear', seaState: 1, smoke: 0 }, distance: dist, lineOfSightBlocked: false });
+        const radar = detectNavalTarget({ observer: ps, target: es, sensorType: 'surface_radar', environment: { timeOfDay: 'day', weather: 'clear', seaState: 1, smoke: 0 }, distance: dist, lineOfSightBlocked: false });
+        if (vis.success) detReport += `  👁️ ${ps.name} sees ${es.name}: [${vis.detectionLevel}] dist ${dist.toFixed(0)}u\n`;
+        else if (radar.success) detReport += `  📡 ${ps.name} radar ${es.name}: [${radar.detectionLevel}] dist ${dist.toFixed(0)}u\n`;
+        else if (dist < 40) detReport += `  ❌ ${ps.name} can't see ${es.name}: dist ${dist.toFixed(0)}u (vis range ${ps.sensors.visualRange})\n`;
+      }
+    }
+    if (detReport) console.log(detReport.trimEnd());
+    else console.log(`  🔍 No ships in detection range`);
 
     // LLM
     let pPlan = '', ePlan = '';
