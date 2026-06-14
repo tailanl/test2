@@ -23,6 +23,8 @@ import { executeNavalAIActions } from '../game/naval/ai/naval-action-executor';
 import { updateShipMotion } from '../game/naval/ship/ship-motion';
 import { createShipForClass } from '../game/naval/naval-debug';
 import { updateAirMissions, type CarrierAirGroup, type NavalAirMission } from '../game/naval/ship/ship-aircraft';
+import { getNavalAdvice, parseNaturalCommand, buildNavalLLMContext } from '../ai/provider';
+import type { NavalLLMAdvice, NavalLLMCommandResult, AIProviderConfig } from '../ai/types';
 
 // ===== Store State =====
 
@@ -51,6 +53,12 @@ interface NavalStoreState {
 
   battleLog: NavalBattleLogEvent[];
 
+  // LLM Advisor
+  aiConfig: AIProviderConfig;
+  aiAdvice?: NavalLLMAdvice;
+  aiLoading: boolean;
+  aiError?: string;
+
   // Actions
   createNavalScenario: () => void;
   selectFleet: (fleetId: string) => void;
@@ -58,6 +66,8 @@ interface NavalStoreState {
   openNavalCombatView: (fleetId: string, contactId?: string) => void;
   submitNavalCommand: (text: string, fleetIds: string[]) => void;
   advanceNavalTurn: () => void;
+  requestAIAdvice: () => Promise<void>;
+  submitACommand: (userInput: string) => Promise<NavalLLMCommandResult | null>;
 }
 
 // ===== Ship Factory (simple version, used by store) =====
@@ -98,6 +108,19 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
     visibilityModifier: 1.0,
   },
   battleLog: [],
+
+  // LLM
+  aiConfig: {
+    kind: 'deepseek',
+    model: 'deepseek-chat',
+    endpoint: 'https://api.deepseek.com/v1/chat/completions',
+    apiKey: '',
+    temperature: 0.7,
+    maxTokens: 600,
+  },
+  aiAdvice: undefined,
+  aiLoading: false,
+  aiError: undefined,
 
   createNavalScenario: () => {
     // 独立地图生成
@@ -357,6 +380,94 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
       battleLog,
     });
   },
+
+  requestAIAdvice: async () => {
+    const state = get();
+    set({ aiLoading: true, aiError: undefined });
+
+    try {
+      const apiKey = getDeepSeekApiKey();
+      const config: AIProviderConfig = {
+        ...state.aiConfig,
+        apiKey,
+      };
+
+      const context = buildNavalLLMContext({
+        turn: state.currentTurn,
+        fleets: state.fleets.map((f) => ({
+          id: f.id, name: f.name, type: f.type, faction: f.faction,
+          position: f.position,
+          ships: f.ships.map((s) => ({
+            id: s.id, name: s.name, shipClass: s.shipClass,
+            damage: s.damage,
+          })),
+          fuelState: f.fuelState, ammoState: f.ammoState, mission: f.mission,
+        })),
+        contacts: state.intel.playerContacts.map((c) => ({
+          id: c.id, detectionLevel: c.detectionLevel, confidence: c.confidence,
+          estimatedClass: (c.estimatedClass as string) || 'unknown',
+          lastKnownPosition: c.lastKnownPosition,
+          uncertaintyRadius: c.uncertaintyRadius, lastDetectedTurn: c.lastDetectedTurn,
+        })),
+        reports: state.reports.map((r) => ({
+          type: r.type, title: r.title, summary: r.summary,
+        })),
+        environment: state.environment,
+      });
+
+      const advice = await getNavalAdvice({ config, context });
+      set({ aiAdvice: advice, aiLoading: false });
+    } catch (e) {
+      set({ aiError: String(e), aiLoading: false });
+    }
+  },
+
+  submitACommand: async (userInput: string) => {
+    const state = get();
+    try {
+      const apiKey = getDeepSeekApiKey();
+      const config: AIProviderConfig = {
+        ...state.aiConfig,
+        apiKey,
+      };
+
+      const context = buildNavalLLMContext({
+        turn: state.currentTurn,
+        fleets: state.fleets.map((f) => ({
+          id: f.id, name: f.name, type: f.type, faction: f.faction,
+          position: f.position,
+          ships: f.ships.map((s) => ({
+            id: s.id, name: s.name, shipClass: s.shipClass,
+            damage: s.damage,
+          })),
+          fuelState: f.fuelState, ammoState: f.ammoState, mission: f.mission,
+        })),
+        contacts: state.intel.playerContacts.map((c) => ({
+          id: c.id, detectionLevel: c.detectionLevel, confidence: c.confidence,
+          estimatedClass: (c.estimatedClass as string) || 'unknown',
+          lastKnownPosition: c.lastKnownPosition,
+          uncertaintyRadius: c.uncertaintyRadius, lastDetectedTurn: c.lastDetectedTurn,
+        })),
+        reports: state.reports.map((r) => ({
+          type: r.type, title: r.title, summary: r.summary,
+        })),
+        environment: state.environment,
+      });
+
+      const result = await parseNaturalCommand({ config, userInput, context });
+      if (result.parsed && result.fleetId) {
+        // Apply the command
+        const fleet = state.fleets.find((f) => f.id === result.fleetId);
+        if (fleet) {
+          set({ selectedFleetId: result.fleetId });
+          useNavalStore.getState().openNavalCombatView(result.fleetId);
+        }
+      }
+      return result;
+    } catch (e) {
+      return null;
+    }
+  },
 }));
 
 // ===== 局部辅助 =====
@@ -389,4 +500,16 @@ function mergeContacts(existing: NavalContact[], newContact: NavalContact): Nava
     return copy;
   }
   return [...existing, newContact];
+}
+
+// ===== 导入 API Key（从 Vite env vars） =====
+
+function getDeepSeekApiKey(): string {
+  // Vite exposes env vars via import.meta.env for VITE_ prefixed vars
+  // For standalone access, read from the store or localStorage
+  if (typeof localStorage !== 'undefined') {
+    const stored = localStorage.getItem('deepseek_api_key');
+    if (stored) return stored;
+  }
+  return 'sk-b895a96126db4365ba217ef5b8d1d795';
 }

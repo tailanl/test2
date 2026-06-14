@@ -8,6 +8,7 @@ import { NavalStrategicMapPanel } from './NavalStrategicMapPanel';
 import { NavalFleetPanel } from './NavalFleetPanel';
 import { NavalIntelPanel } from './NavalIntelPanel';
 import { NavalReportPanel } from './NavalReportPanel';
+import { NavalAIAdvisorPanel } from './NavalAIAdvisorPanel';
 
 export function NavalModeRoot() {
   const {
@@ -19,7 +20,7 @@ export function NavalModeRoot() {
     currentTurn,
   } = useNavalStore();
 
-  const [activeTab, setActiveTab] = useState<'fleet' | 'intel' | 'reports'>('fleet');
+  const [activeTab, setActiveTab] = useState<'fleet' | 'intel' | 'reports' | 'ai'>('fleet');
 
   if (!overlay && fleets.length === 0) {
     return (
@@ -65,7 +66,7 @@ export function NavalModeRoot() {
         <div className="w-80 border-l border-gray-700 flex flex-col bg-gray-900/80">
           {/* Tab bar */}
           <div className="flex border-b border-gray-700">
-            {(['fleet', 'intel', 'reports'] as const).map((tab) => (
+            {(['fleet', 'intel', 'reports', 'ai'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -75,7 +76,7 @@ export function NavalModeRoot() {
                     : 'text-gray-500 hover:text-gray-300'
                 }`}
               >
-                {tab === 'fleet' ? 'FLEETS' : tab === 'intel' ? 'INTEL' : 'REPORTS'}
+                {tab === 'fleet' ? 'FLEETS' : tab === 'intel' ? 'INTEL' : tab === 'reports' ? 'REPORTS' : 'AI'}
               </button>
             ))}
           </div>
@@ -85,6 +86,7 @@ export function NavalModeRoot() {
             {activeTab === 'fleet' && <NavalFleetPanel />}
             {activeTab === 'intel' && <NavalIntelPanel />}
             {activeTab === 'reports' && <NavalReportPanel />}
+            {activeTab === 'ai' && <NavalAIAdvisorPanel />}
           </div>
         </div>
       </div>
