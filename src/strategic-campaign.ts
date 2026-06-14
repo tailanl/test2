@@ -137,7 +137,7 @@ function runAirMissions(fleets:StratFleet[], turn:number, allKills: any[]){
       if(m.status==='returning'){
         // Fly back toward fleet
         const rdx=fleet.x-m.x, rdy=fleet.y-m.y, rdist=Math.sqrt(rdx*rdx+rdy*rdy);
-        if(rdist<2 && m.type!=='cap'){
+        if(rdist<2 && (m.type as string)!=='cap'){
           if(m.aircraftType==='fighter') ag.fighterReady+=m.aircraft;
           else if(m.aircraftType==='dive_bomber') ag.diveBomberReady+=m.aircraft;
           else ag.torpedoBomberReady+=m.aircraft;
@@ -145,7 +145,7 @@ function runAirMissions(fleets:StratFleet[], turn:number, allKills: any[]){
         }
         const step=Math.min(40/rdist,1);
         m.x+=rdx*step; m.y+=rdy*step;
-      }else if(m.status!=='cap'&&m.status!=='searching'){
+      }else if((m.status as string)!=='cap'&&(m.status as string)!=='searching'){
         const step=Math.min(40/dist,1);
         m.x+=dx*step; m.y+=dy*step;
       }
