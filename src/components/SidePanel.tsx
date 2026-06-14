@@ -41,25 +41,91 @@ export function SidePanel() {
     const pLost: string[] = [], eLost: string[] = [];
 
     for (let t = 0; t < turns; t++) {
-      const s = useNavalStore.getState();
-      alog(`--- TURN ${s.currentTurn + 1} ---`);
+      const before = useNavalStore.getState();
+      const pfBefore = before.fleets.find(f=>f.faction==='player');
+      const efBefore = before.fleets.find(f=>f.faction==='enemy');
+      alog('');
+      alog(`══════ TURN ${before.currentTurn + 1} ══════`);
 
-      // LLM 调用
+      // 舰船位置快照
+      alog(`📍 FLEET POSITIONS:`);
+      if (pfBefore) for (const s of pfBefore.ships) alog(`  ${s.name}(${s.shipClass}) → (${s.position.x.toFixed(0)},${s.position.y.toFixed(0)}) HDG${s.headingDeg}° SPD${s.speedKts}kt`);
+      if (efBefore?.detectedByPlayer) alog(`  Enemy detected @ (${efBefore.lastKnownPosition?.globalX?.toFixed(0)},${efBefore.lastKnownPosition?.globalY?.toFixed(0)})`);
+
+      // 当前接触
+      const contactsBefore = before.intel.playerContacts;
+      if (contactsBefore.length > 0) {
+        alog(`📡 CONTACTS (${contactsBefore.length}):`);
+        for (const c of contactsBefore) alog(`  [${c.detectionLevel}] ${c.estimatedClass||'unknown'} ±${c.uncertaintyRadius.toFixed(0)}`);
+      } else alog(`📡 No contacts`);
+
+      // LLM 决策
+      let decision: any = {};
       try {
-        const ctx = buildContext(s);
-        const decision = await callLLM(ctx);
-        alog(`LLM: ${decision.situation || 'no assessment'}`);
-        for (const o of (decision.orders || [])) alog(`  → ${o.type}: ${o.reason || ''}`);
-        // 执行
-        const exec = executeOrders(s, decision.orders || []);
-        for (const e of exec) alog(`  ⚡ ${e.description || ''}`);
-      } catch (e: any) { alog(`LLM err: ${String(e).slice(0,80)}`); }
+        const ctx = buildContext(before);
+        decision = await callLLM(ctx);
+        alog(`🤖 LLM DECISION: ${decision.situation || ''}`);
+      } catch(e: any) { alog(`⚠️ LLM offline: ${String(e).slice(0,60)}`); }
 
+      // 推进
       advanceNavalTurn();
-      await sleep(50);
+      await sleep(100);
 
       const after = useNavalStore.getState();
-      const snap = captureTurnSnapshot(after.currentTurn, after.fleets, after.intel.playerContacts, after.reports, after.battleLog.slice(-20));
+      const pfAfter = after.fleets.find(f=>f.faction==='player');
+      const efAfter = after.fleets.find(f=>f.faction==='enemy');
+
+      // 舰船位置变化
+      alog(`📐 SHIP MOVEMENTS:`);
+      if (pfAfter && pfBefore) {
+        for (const sa of pfAfter.ships) {
+          const sb = pfBefore.ships.find(x=>x.id===sa.id);
+          if (!sb) continue;
+          const dx = sa.position.x - sb.position.x, dy = sa.position.y - sb.position.y;
+          const moved = Math.abs(dx)>0.1 || Math.abs(dy)>0.1;
+          const dmgChange = sa.damage.status !== sb.damage.status || sa.damage.flooding !== sb.damage.flooding || sa.damage.fire !== sb.damage.fire;
+          if (moved || dmgChange) {
+            let ln = `  ${sa.name}: `;
+            if (moved) ln += `(${sb.position.x.toFixed(0)},${sb.position.y.toFixed(0)})→(${sa.position.x.toFixed(0)},${sa.position.y.toFixed(0)}) `;
+            if (dmgChange) {
+              ln += `[${sa.damage.status}`;
+              if (sa.damage.flooding>0) ln += ` flood:${sa.damage.flooding.toFixed(0)}%`;
+              if (sa.damage.fire>0) ln += ` fire:${sa.damage.fire.toFixed(0)}%`;
+              ln += `]`;
+            }
+            alog(ln);
+          }
+        }
+      }
+
+      // 接触变化
+      const contactsAfter = after.intel.playerContacts;
+      const newContacts = contactsAfter.filter(c=>!contactsBefore.find(x=>x.id===c.id));
+      const lostContacts = contactsBefore.filter(c=>!contactsAfter.find(x=>x.id===c.id));
+      const upgraded = contactsAfter.filter(c=>{
+        const pb = contactsBefore.find(x=>x.id===c.id);
+        return pb && c.detectionLevel !== pb.detectionLevel;
+      });
+      if (newContacts.length) { alog(`🆕 NEW CONTACTS (${newContacts.length}):`); for (const c of newContacts) alog(`  [${c.detectionLevel}] ${c.estimatedClass||'?'} @ (${c.lastKnownPosition.x.toFixed(0)},${c.lastKnownPosition.y.toFixed(0)})`); }
+      if (lostContacts.length) alog(`🏳️ LOST CONTACTS (${lostContacts.length})`);
+      if (upgraded.length) for (const u of upgraded) { const ob = contactsBefore.find(x=>x.id===u.id); alog(`📈 ${ob?.detectionLevel}→${u.detectionLevel}: ${u.estimatedClass||'?'}`); }
+
+      // 战斗事件
+      const newEvents = after.battleLog.filter(e=>!before.battleLog.find(x=>x.id===e.id));
+      if (newEvents.length > 0) {
+        alog(`⚔️ BATTLE EVENTS (${newEvents.length}):`);
+        for (const e of newEvents.slice(0,10)) alog(`  ${e.type}: ${e.description.slice(0,120)}`);
+      }
+
+      // 报告
+      const newReports = after.reports.filter(r=>!before.reports.find(x=>x.id===r.id));
+      if (newReports.length > 0) {
+        alog(`📋 REPORTS (${newReports.length}):`);
+        for (const r of newReports) alog(`  [${r.type}] ${r.summary.slice(0,100)}`);
+      }
+
+      const snapsBefore = after.battleLog.length;
+      const snap = captureTurnSnapshot(after.currentTurn, after.fleets, after.intel.playerContacts, after.reports, after.battleLog.slice(-30));
       snaps.push(snap);
 
       for (const f of after.fleets) for (const sh of f.ships) {
@@ -103,7 +169,7 @@ export function SidePanel() {
   const damagedShips = playerFleet?.ships.filter(s => s.damage.status !== 'combat_effective') || [];
 
   return (
-    <div className="w-[320px] flex flex-col glass border-l border-blue-900/20 shrink-0 text-xs">
+    <div className="w-[380px] flex flex-col glass border-l border-blue-900/20 shrink-0 text-xs">
       {/* 回合控制 */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800/50">
         <span className="font-bold text-amber-400">TURN {currentTurn}</span>
@@ -211,9 +277,51 @@ export function SidePanel() {
 
 function buildContext(s: ReturnType<typeof useNavalStore.getState>) {
   const pf = s.fleets.find(f => f.faction === 'player');
-  const ships = pf?.ships.map(sh => `${sh.name}(${sh.shipClass}) HDG${sh.headingDeg} SPD${sh.speedKts} ${sh.damage.status}`).join(', ') || '';
-  const contacts = s.intel.playerContacts.map(c => `[${c.detectionLevel}] ${c.estimatedClass || '?'} at (${c.lastKnownPosition.x.toFixed(0)},${c.lastKnownPosition.y.toFixed(0)})`).join('; ') || 'NONE';
-  return `TURN ${s.currentTurn + 1}\nShips: ${ships}\nContacts: ${contacts}\n\nIssue orders. Respond ONLY with JSON: {"situation":"...","orders":[{"type":"search|strike|move","target":"...","reason":"..."}]}`;
+  const ef = s.fleets.find(f => f.faction === 'enemy');
+  
+  let ctx = `=== TURN ${s.currentTurn + 1} ===\n`;
+  
+  // 己方舰队详情
+  ctx += `\nYOUR TASK FORCE:\n`;
+  if (pf) {
+    ctx += `Fleet: ${pf.name} (${pf.type}), Fuel: ${pf.fuelState}, Ammo: ${pf.ammoState}\n`;
+    ctx += `Position: (${pf.position.globalX}, ${pf.position.globalY})\n`;
+    ctx += `Mission: ${pf.mission}\n\n`;
+    ctx += `SHIPS:\n`;
+    for (const sh of pf.ships) {
+      const dmg = sh.damage.status !== 'combat_effective' 
+        ? ` DAMAGE(status:${sh.damage.status} flood:${sh.damage.flooding.toFixed(0)}% fire:${sh.damage.fire.toFixed(0)}% hull:${sh.damage.hullIntegrity.toFixed(0)}%)` 
+        : '';
+      const ac = sh.aircraft ? ` [CV: F${sh.aircraft.fighters}/DB${sh.aircraft.diveBombers}/TB${sh.aircraft.torpedoBombers} ready:${sh.aircraft.readyAircraft}]` : '';
+      ctx += `  ${sh.name} (${sh.shipClass}) at (${sh.position.x.toFixed(0)},${sh.position.y.toFixed(0)}) HDG:${sh.headingDeg}deg SPD:${sh.speedKts}kt${ac}${dmg}\n`;
+    }
+  }
+
+  // 敌方情报（仅已探测的！）
+  ctx += `\nENEMY INTEL (ONLY DETECTED CONTACTS):\n`;
+  if (ef && ef.detectedByPlayer && ef.lastKnownPosition) {
+    ctx += `Enemy fleet detected! Type: ${ef.type}, Last known: (${ef.lastKnownPosition.globalX}, ${ef.lastKnownPosition.globalY}) ±${ef.lastKnownPosition.uncertaintyRadius}\n`;
+  }
+  const contacts = s.intel.playerContacts;
+  if (contacts.length > 0) {
+    for (const c of contacts) {
+      ctx += `  [${c.detectionLevel}] ${c.estimatedClass || 'unknown'} at (${c.lastKnownPosition.x.toFixed(0)},${c.lastKnownPosition.y.toFixed(0)}) ±${c.uncertaintyRadius.toFixed(0)} conf:${c.confidence} last:T${c.lastDetectedTurn}\n`;
+    }
+  } else {
+    ctx += `  NONE - No enemy contacts on any sensors.\n`;
+  }
+
+  // 近期报告
+  const recentReports = s.reports.slice(-3);
+  if (recentReports.length > 0) {
+    ctx += `\nRECENT REPORTS:\n`;
+    for (const r of recentReports) ctx += `  [${r.type}] ${r.summary.slice(0,150)}\n`;
+  }
+
+  ctx += `\nCOMMANDER: Issue orders for Turn ${s.currentTurn + 1}.`;
+  ctx += `\nRespond with JSON: {"situation":"1-sentence assessment","orders":[{"action":"search|strike|move|intercept|patrol|withdraw","target":"contact id or description","heading":number,"speed":number,"reason":"why"}]}`;
+  
+  return ctx;
 }
 
 async function callLLM(ctx: string) {
