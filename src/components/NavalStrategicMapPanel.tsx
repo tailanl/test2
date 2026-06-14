@@ -12,24 +12,125 @@ export function NavalStrategicMapPanel() {
     selectedFleetId,
     selectFleet,
     openNavalCombatView,
+    facilities,
+    shippingLanes,
+    overlay,
   } = useNavalStore();
 
   const playerFleets = fleets.filter((f) => f.faction === 'player');
   const contacts = intel.playerContacts;
 
+  const mapW = overlay?.[0]?.length ?? 1024;
+  const mapH = overlay?.length ?? 1024;
+  const scaleX = 0.78;
+  const scaleY = 0.58;
+
   return (
     <div className="relative w-full h-full bg-gray-950 overflow-auto">
       {/* Canvas area - simplified grid */}
       <div className="absolute inset-0" style={{ minWidth: '800px', minHeight: '600px' }}>
-        {/* Grid lines */}
-        <svg className="absolute inset-0 w-full h-full">
-          {Array.from({ length: 20 }).map((_, i) => (
-            <line key={`v${i}`} x1={i * 40} y1={0} x2={i * 40} y2={600} stroke="#1e293b" strokeWidth={1} />
-          ))}
-          {Array.from({ length: 15 }).map((_, i) => (
-            <line key={`h${i}`} x1={0} y1={i * 40} x2={800} y2={i * 40} stroke="#1e293b" strokeWidth={1} />
-          ))}
-        </svg>
+        {/* Ocean background */}
+        <rect width={mapW * scaleX} height={mapH * scaleY} fill="#0a1628" />
+
+        {/* Shipping lanes */}
+        {shippingLanes.map((lane) => (
+          <polyline
+            key={lane.id}
+            points={lane.waypoints.map((wp) => `${wp.globalX * scaleX},${mapH * scaleY - wp.globalY * scaleY}`).join(' ')}
+            fill="none"
+            stroke="#1e40af"
+            strokeWidth={1}
+            strokeDasharray="4,4"
+            opacity={0.3}
+          />
+        ))}
+
+        {/* Island shapes (simplified) */}
+        {overlay && Array.from({ length: Math.floor(mapH / 16) }).flatMap((_, gy) =>
+          Array.from({ length: Math.floor(mapW / 16) }).map((_, gx) => {
+            const x = gx * 16; const y = gy * 16;
+            if (x >= mapW || y >= mapH) return null;
+            const cell = overlay[y]?.[x];
+            if (!cell) return null;
+            if (cell.seaZoneType === 'island') {
+              return (
+                <rect
+                  key={`isl_${gx}_${gy}`}
+                  x={x * scaleX} y={mapH * scaleY - (y + 16) * scaleY}
+                  width={16 * scaleX} height={16 * scaleY}
+                  fill="#2d4a1e"
+                  opacity={0.6}
+                />
+              );
+            }
+            if (cell.seaZoneType === 'shallow_water' || cell.seaZoneType === 'reef') {
+              return (
+                <rect
+                  key={`shw_${gx}_${gy}`}
+                  x={x * scaleX} y={mapH * scaleY - (y + 16) * scaleY}
+                  width={16 * scaleX} height={16 * scaleY}
+                  fill="#0f766e"
+                  opacity={0.3}
+                />
+              );
+            }
+            if (cell.seaZoneType === 'coastal_water') {
+              return (
+                <rect
+                  key={`cw_${gx}_${gy}`}
+                  x={x * scaleX} y={mapH * scaleY - (y + 16) * scaleY}
+                  width={16 * scaleX} height={16 * scaleY}
+                  fill="#0e7490"
+                  opacity={0.2}
+                />
+              );
+            }
+            return null;
+          })
+        )}
+
+        {/* Facilities */}
+        {facilities.map((fac) => (
+          <g key={fac.id}>
+            {fac.type === 'port' || fac.type === 'naval_base' ? (
+              <circle
+                cx={fac.position.globalX * scaleX}
+                cy={mapH * scaleY - fac.position.globalY * scaleY}
+                r={4}
+                fill={fac.type === 'naval_base' ? '#f59e0b' : '#3b82f6'}
+                stroke="#fff"
+                strokeWidth={1}
+              />
+            ) : fac.type === 'airfield' ? (
+              <rect
+                x={fac.position.globalX * scaleX - 3}
+                y={mapH * scaleY - fac.position.globalY * scaleY - 1.5}
+                width={6} height={3}
+                fill="#a855f7"
+                stroke="#fff"
+                strokeWidth={0.5}
+              />
+            ) : fac.type === 'supply_depot' ? (
+              <rect
+                x={fac.position.globalX * scaleX - 2}
+                y={mapH * scaleY - fac.position.globalY * scaleY - 2}
+                width={4} height={4}
+                fill="#22c55e"
+                stroke="#fff"
+                strokeWidth={0.5}
+              />
+            ) : null}
+            <text
+              x={fac.position.globalX * scaleX}
+              y={mapH * scaleY - fac.position.globalY * scaleY + 8}
+              textAnchor="middle"
+              fill={fac.faction === 'player' ? '#60a5fa' : fac.faction === 'enemy' ? '#f87171' : '#9ca3af'}
+              fontSize={6}
+            >
+              {fac.name}
+            </text>
+          </g>
+        ))}
 
         {/* Fog tiles */}
         {/* In a real implementation, render fog tile overlay */}
@@ -43,8 +144,8 @@ export function NavalStrategicMapPanel() {
               fleet.id === selectedFleetId ? 'ring-2 ring-amber-400' : ''
             }`}
             style={{
-              left: `${fleet.position.globalX * 0.4}px`,
-              top: `${600 - fleet.position.globalY * 0.4}px`,
+              left: `${fleet.position.globalX * scaleX}px`,
+              top: `${mapH * scaleY - fleet.position.globalY * scaleY}px`,
               transform: 'translate(-50%, -50%)',
             }}
           >
@@ -67,8 +168,8 @@ export function NavalStrategicMapPanel() {
             key={contact.id}
             className="absolute"
             style={{
-              left: `${contact.lastKnownPosition.x * 0.4}px`,
-              top: `${600 - contact.lastKnownPosition.y * 0.4}px`,
+              left: `${contact.lastKnownPosition.x * scaleX}px`,
+              top: `${mapH * scaleY - contact.lastKnownPosition.y * scaleY}px`,
               transform: 'translate(-50%, -50%)',
             }}
           >
@@ -117,7 +218,9 @@ export function NavalStrategicMapPanel() {
           <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-blue-500"/><span>Player Fleet</span></div>
           <div className="flex items-center gap-1"><div className="w-2 h-2 rotate-45 border border-red-400"/><span>Tracked Contact</span></div>
           <div className="flex items-center gap-1"><div className="w-2 h-2 rotate-45 border border-amber-400"/><span>Detected Contact</span></div>
-          <div className="flex items-center gap-1"><div className="w-2 h-2 rotate-45 border border-gray-500"/><span>Lost Contact</span></div>
+          <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-amber-500"/><span>Naval Base</span></div>
+          <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-blue-500"/><span>Port</span></div>
+          <div className="flex items-center gap-1"><div className="w-2 h-1 bg-purple-500"/><span>Airfield</span></div>
         </div>
       </div>
     </div>

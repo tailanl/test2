@@ -11,7 +11,8 @@ import type { NavalIntelState, NavalContact } from '../game/naval/intel/naval-in
 import type { NavalAIReport, NavalAIAction } from '../game/naval/ai/naval-ai-types';
 import type { NavalOperationView, NavalCombatViewport, NavalBattleMap } from '../game/naval/naval-types';
 import type { NavalBattleLogEvent } from '../game/naval/ship/ship-damage';
-import { createNavalOverlayFromRegionTile, createNavalBattleMap } from '../game/naval/naval-map-adapter';
+import { generateNavalMap, createNavalBattleMap } from '../game/naval/naval-map-adapter';
+import type { NavalFacility, ShippingLane } from '../game/naval/naval-map-generator';
 import { createDefaultIntelState } from '../game/naval/intel/naval-intel-types';
 import { updateNavalIntelState } from '../game/naval/intel/naval-contact-tracker';
 import { decayNavalContacts } from '../game/naval/intel/naval-contact-tracker';
@@ -42,6 +43,9 @@ interface NavalStoreState {
   selectedCombatViewport?: NavalCombatViewport;
 
   battleMap?: NavalBattleMap;
+
+  facilities: NavalFacility[];
+  shippingLanes: ShippingLane[];
 
   intel: NavalIntelState;
 
@@ -96,6 +100,8 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
   selectedOperationView: undefined,
   selectedCombatViewport: undefined,
   battleMap: undefined,
+  facilities: [],
+  shippingLanes: [],
   intel: createDefaultIntelState(),
   reports: [],
   currentTurn: 0,
@@ -123,22 +129,30 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
   aiError: undefined,
 
   createNavalScenario: () => {
-    // 独立地图生成
-    const overlay = createNavalOverlayFromRegionTile({
+    // 独立地图生成 (Pacific island chain)
+    const mapResult = generateNavalMap({
       width: 1024,
       height: 1024,
       seed: Date.now(),
-      islandDensity: 0.08,
-      portDensity: 0.015,
+      islandGroupCount: 8,
+      maxIslandRadius: 60,
+      minIslandRadius: 8,
+      facilityDensity: 0.4,
+      seaLevel: 0.40,
     });
 
+    const overlay = mapResult.overlay;
     const tileW = overlay[0]?.length ?? 1024;
     const tileH = overlay.length;
 
-    const playerCX = Math.floor(tileW * 0.35);
-    const playerCY = Math.floor(tileH * 0.50);
-    const enemyCX = Math.floor(tileW * 0.60);
-    const enemyCY = Math.floor(tileH * 0.55);
+    // 舰队位置：放在 player 和 enemy 的港口附近
+    const playerPorts = mapResult.facilities.filter((f) => f.faction === 'player' && (f.type === 'port' || f.type === 'naval_base'));
+    const enemyPorts = mapResult.facilities.filter((f) => f.faction === 'enemy' && (f.type === 'port' || f.type === 'naval_base'));
+
+    const playerCX = playerPorts[0]?.position.globalX ?? Math.floor(tileW * 0.35);
+    const playerCY = playerPorts[0]?.position.globalY ?? Math.floor(tileH * 0.50);
+    const enemyCX = enemyPorts[0]?.position.globalX ?? Math.floor(tileW * 0.60);
+    const enemyCY = enemyPorts[0]?.position.globalY ?? Math.floor(tileH * 0.55);
 
     // Create player fleet
     const playerShips: NavalShip[] = [
@@ -200,6 +214,8 @@ export const useNavalStore = create<NavalStoreState>((set, get) => ({
 
     set({
       overlay,
+      facilities: mapResult.facilities,
+      shippingLanes: mapResult.shippingLanes,
       fleets: [playerFleet, enemyFleet],
       intel: { ...createDefaultIntelState() },
       reports: [],

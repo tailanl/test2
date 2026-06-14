@@ -22,7 +22,7 @@ import { updateNavalIntelState, decayNavalContacts } from './intel/naval-contact
 import { createDefaultIntelState } from './intel/naval-intel-types';
 import { getVisibleNavalCells } from './intel/naval-fog-of-war';
 import { decayDetectionLevel } from './intel/naval-sensor-model';
-import { createNavalOverlayFromRegionTile, createNavalBattleMap } from './naval-map-adapter';
+import { generateNavalMap, createNavalBattleMap } from './naval-map-adapter';
 import { NAVAL_FLEET_TEMPLATES } from './naval-config';
 
 // ===== Ship Factory =====
@@ -100,11 +100,13 @@ export function createShipForClass(
 export function debugNavalBattleChain() {
   console.log('=== debugNavalBattleChain START ===');
 
-  // 0. Generate standalone naval overlay (no WorldAtlas dependency)
-  const overlay = createNavalOverlayFromRegionTile({
+  // 0. Generate standalone naval map with island chains
+  const mapResult = generateNavalMap({
     width: 1024, height: 1024, seed: 12345,
-    islandDensity: 0.08, portDensity: 0.015,
+    islandGroupCount: 8, maxIslandRadius: 60, minIslandRadius: 8,
+    facilityDensity: 0.4, seaLevel: 0.40,
   });
+  const overlay = mapResult.overlay;
 
   const overlayWidth = overlay[0]?.length ?? 1024;
   const overlayHeight = overlay.length;
@@ -114,6 +116,7 @@ export function debugNavalBattleChain() {
   const portCount = overlay.flat().filter((c) => c.seaZoneType === 'port' || c.seaZoneType === 'naval_base').length;
 
   console.log(`Overlay: ${overlayHeight}x${overlayWidth}, deepOcean=${deepOceanCount}, islands=${islandCount}, ports=${portCount}`);
+  console.log(`Facilities: ${mapResult.facilities.length}, Shipping lanes: ${mapResult.shippingLanes.length}`);
 
   // 1. 创建 player carrier_task_force (position within overlay)
   const playerCX = Math.floor(overlayWidth * 0.35);
