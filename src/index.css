@@ -1,26 +1,82 @@
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+@import "tailwindcss";
+
+/* ===== Naval Wargame - Pacific Dark Theme ===== */
+:root {
+  --navy-900: #0a0e1a;
+  --navy-800: #0f1729;
+  --navy-700: #162032;
+  --navy-600: #1e2d45;
+  --ocean: #0c4a6e;
+  --gold: #f59e0b;
+  --gold-dim: #b45309;
 }
 
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
 html, body, #root {
-  width: 100%;
-  height: 100%;
+  width: 100%; height: 100%;
   overflow: hidden;
-  background: #0a0a0f;
+  background: var(--navy-900);
   color: #e2e8f0;
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 14px;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: var(--navy-800); }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+/* Grid dots background */
+.navy-bg {
+  background-color: #0a0e1a;
+  background-image: radial-gradient(circle, #1e3a5f 1px, transparent 1px);
+  background-size: 24px 24px;
 }
-::-webkit-scrollbar-track {
-  background: #1e293b;
+
+/* Glass panel */
+.glass {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(59, 130, 246, 0.1);
 }
-::-webkit-scrollbar-thumb {
-  background: #475569;
-  border-radius: 3px;
+
+/* Gold accent buttons */
+.btn-gold {
+  background: linear-gradient(135deg, #92400e, #b45309);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  transition: all 0.2s;
 }
+.btn-gold:hover {
+  background: linear-gradient(135deg, #b45309, #d97706);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+/* Blue action buttons */
+.btn-navy {
+  background: linear-gradient(135deg, #1e3a5f, #1e40af);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  transition: all 0.2s;
+}
+.btn-navy:hover {
+  background: linear-gradient(135deg, #1e40af, #2563eb);
+}
+
+/* Pulsing dot for active status */
+.pulse { animation: pulse 2s infinite; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Damage bar colors */
+.dmg-ok { background: #22c55e; }
+.dmg-warn { background: #eab308; }
+.dmg-bad { background: #ef4444; }
+.dmg-dead { background: #6b7280; }
+
+/* Sea depth gradient */
+.sea-deep { fill: #0a1628; }
+.sea-coastal { fill: #0c4a6e; }
+.sea-shallow { fill: #0f766e; }
+.sea-reef { fill: #14b8a6; }
+.land-island { fill: #1a3a1a; }

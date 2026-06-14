@@ -1,7 +1,3 @@
-/**
- * NavalModeRoot - 海军模式根组件
- */
-
 import React, { useState } from 'react';
 import { useNavalStore } from '@/store/naval-store';
 import { NavalStrategicMapPanel } from './NavalStrategicMapPanel';
@@ -13,88 +9,80 @@ import { NavalCampaignPanel } from './NavalCampaignPanel';
 
 export function NavalModeRoot() {
   const {
-    navalMode,
-    fleets,
-    overlay,
-    createNavalScenario,
-    advanceNavalTurn,
-    currentTurn,
-    isCreatingScenario,
+    fleets, overlay, createNavalScenario, advanceNavalTurn, currentTurn, isCreatingScenario,
   } = useNavalStore();
 
-  const [activeTab, setActiveTab] = useState<'fleet' | 'intel' | 'reports' | 'ai' | 'campaign'>('fleet');
+  const [activeTab, setActiveTab] = useState<'fleet'|'intel'|'reports'|'ai'|'campaign'>('fleet');
 
   if (!overlay && fleets.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full bg-gray-950">
-        <div className="p-8 text-center space-y-4">
-          <h2 className="text-2xl font-bold text-amber-400">Naval Command</h2>
-          <p className="text-gray-400">Pacific Theater - Island Chains</p>
-          <p className="text-gray-600 text-sm">Generate a strategic map with island chains, ports, airfields, and shipping lanes.</p>
-          <button
-            onClick={createNavalScenario}
-            disabled={isCreatingScenario}
-            className="px-6 py-3 bg-blue-700 hover:bg-blue-600 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg font-semibold transition-colors"
-          >
+      <div className="flex items-center justify-center h-full navy-bg">
+        <div className="text-center space-y-6 max-w-md">
+          <div className="text-6xl">⚓</div>
+          <h1 className="text-3xl font-black text-white tracking-wider">PACIFIC COMMAND</h1>
+          <div className="h-px w-32 mx-auto bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
+          <p className="text-sky-300/70 text-sm">WWII Carrier Task Force Operations</p>
+          <div className="space-y-1.5 text-xs text-slate-500">
+            <p>• Island chains with ports, airfields & supply depots</p>
+            <p>• Fog of war with 7-level contact detection</p>
+            <p>• DeepSeek AI campaign auto-play</p>
+          </div>
+          <button onClick={createNavalScenario} disabled={isCreatingScenario}
+            className="btn-gold px-8 py-3 rounded-lg text-white font-bold text-base disabled:opacity-50 disabled:cursor-wait">
             {isCreatingScenario ? (
               <span className="flex items-center gap-2">
-                <span className="w-5 h-5 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
-                Generating Map...
+                <span className="w-5 h-5 border-2 border-amber-300 border-t-amber-600 rounded-full animate-spin" />
+                Generating Pacific Map...
               </span>
-            ) : (
-              'Create Naval Scenario'
-            )}
+            ) : '⚡ DEPLOY FLEET'}
           </button>
         </div>
       </div>
     );
   }
 
+  const tabs = [
+    { id: 'fleet' as const, label: 'FLEET', icon: '🚢' },
+    { id: 'intel' as const, label: 'INTEL', icon: '🔍' },
+    { id: 'reports' as const, label: 'REPORTS', icon: '📋' },
+    { id: 'ai' as const, label: 'AI', icon: '🧠' },
+    { id: 'campaign' as const, label: 'CAMP', icon: '⚔️' },
+  ];
+
   return (
-    <div className="flex flex-col h-full text-gray-200">
-      {/* Header */}
-      <div className="flex items-center justify-between p-2 bg-gray-900 border-b border-gray-700">
-        <h2 className="text-lg font-bold text-amber-400">
-          {navalMode === 'strategic' ? 'Strategic Map' : navalMode === 'operation' ? 'Operation View' : 'Combat View'}
-        </h2>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400">Turn {currentTurn}</span>
-          <button
-            onClick={advanceNavalTurn}
-            className="px-3 py-1 bg-green-700 hover:bg-green-600 text-white rounded text-sm"
-          >
-            Advance Turn
-          </button>
+    <div className="flex flex-col h-full bg-[#0a0e1a]">
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-4 py-2 glass border-b border-blue-900/20 shrink-0">
+        <div className="flex items-center gap-3">
+          <span className="text-amber-400 font-black text-lg tracking-wider">PACIFIC COMMAND</span>
+          <span className="text-slate-600 text-xs">|</span>
+          <span className="text-slate-400 text-xs">Turn {currentTurn}</span>
         </div>
+        <button onClick={advanceNavalTurn}
+          className="btn-navy px-4 py-1.5 rounded text-white text-xs font-bold">
+          ▶ ADVANCE TURN
+        </button>
       </div>
 
-      {/* Main content */}
+      {/* Main */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Map panel */}
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-hidden">
           <NavalStrategicMapPanel />
         </div>
 
-        {/* Side panels */}
-        <div className="w-80 border-l border-gray-700 flex flex-col bg-gray-900/80">
-          {/* Tab bar */}
-          <div className="flex border-b border-gray-700">
-            {(['fleet', 'intel', 'reports', 'ai', 'campaign'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 px-2 py-1.5 text-xs font-semibold ${
-                  activeTab === tab
-                    ? 'bg-gray-800 text-amber-400 border-b-2 border-amber-400'
-                    : 'text-gray-500 hover:text-gray-300'
-                }`}
-              >
-                {tab === 'fleet' ? 'FLEET' : tab === 'intel' ? 'INTEL' : tab === 'reports' ? 'REPORTS' : tab === 'campaign' ? 'CAMP' : 'AI'}
+        {/* Sidebar */}
+        <div className="w-[340px] flex flex-col glass border-l border-blue-900/20 shrink-0">
+          <div className="flex border-b border-blue-900/20">
+            {tabs.map((t) => (
+              <button key={t.id} onClick={() => setActiveTab(t.id)}
+                className={`flex-1 py-2 text-[11px] font-bold tracking-wider transition-colors ${
+                  activeTab === t.id
+                    ? 'bg-blue-900/20 text-amber-400 border-b-2 border-amber-400'
+                    : 'text-slate-600 hover:text-slate-400'}`}>
+                {t.icon} {t.label}
               </button>
             ))}
           </div>
-
-          {/* Panel content */}
           <div className="flex-1 overflow-auto">
             {activeTab === 'fleet' && <NavalFleetPanel />}
             {activeTab === 'intel' && <NavalIntelPanel />}
