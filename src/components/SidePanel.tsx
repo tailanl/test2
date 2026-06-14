@@ -58,34 +58,52 @@ export function SidePanel() {
         const resp = await askLLM(ctx);
         addLog(`🤖 AI: ${resp.slice(0, 160)}`);
 
-        // 区域搜索：从航母和陆地机场扇形放出搜索机组
+        // 区域搜索：根据方向放置飞机(扇形)
         if ((resp.includes('搜索') || resp.includes('侦察'))) {
           const dirs = parseSearchDir(resp);
-          // From fleet
+          // From fleet - place aircraft in the search direction
           if (pf) dirs.forEach((heading, i) => {
+            const rad = heading * Math.PI / 180;
+            const offset = (i - dirs.length / 2) * 10;
             useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations,
-              { id: `s_fleet_${t}_${i}`, type: 'search', aircraft: 2, x: pf.position.globalX + 30, y: pf.position.globalY + (i - dirs.length / 2) * 12, heading, fleetName: pf.name, status: '搜索中' }
+              { id: `s_fleet_${t}_${i}`, type: 'search', aircraft: 2,
+                x: pf.position.globalX + Math.cos(rad) * 35 + Math.sin(rad) * offset,
+                y: pf.position.globalY + Math.sin(rad) * 35 - Math.cos(rad) * offset,
+                heading, fleetName: pf.name, status: '搜索中' }
             ]}));
           });
-          // From land airfields
+          // From land airfields - also place in search direction
           landAfs.filter(a => a.faction === 'player' && a.bombers > 0).slice(0, 2).forEach(af => {
+            const rad = (dirs[0] || 45) * Math.PI / 180;
             useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations,
-              { id: `s_land_${t}_${af.id}`, type: 'search', aircraft: 2, x: af.x + 20, y: af.y, heading: dirs[0] || 45, fleetName: af.name, status: '搜索中' }
+              { id: `s_land_${t}_${af.id}`, type: 'search', aircraft: 2,
+                x: af.x + Math.cos(rad) * 25,
+                y: af.y + Math.sin(rad) * 25,
+                heading: dirs[0] || 45, fleetName: af.name, status: '搜索中' }
             ]}));
           });
           addLog(`  ✈️ 扇形搜索: ${dirs.length}方向, 航母+陆基`);
         }
         if ((resp.includes('打击') || resp.includes('攻击')) && pf) {
-          useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations, { id: `st_${t}`, type: 'strike', x: pf.position.globalX + 60, y: pf.position.globalY + 40, heading: 50, fleetName: pf.name, status: '进攻中', aircraft: 6 }] }));
+          // Strike toward enemy direction (west/northwest for player vs Japan)
+          const enemyDir = pf.position.globalX > 1500 ? 270 : 315;
+          const rad = enemyDir * Math.PI / 180;
+          useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations,
+            { id: `st_${t}`, type: 'strike', x: pf.position.globalX + Math.cos(rad) * 40, y: pf.position.globalY + Math.sin(rad) * 40, heading: enemyDir, fleetName: pf.name, status: '进攻中', aircraft: 6 }
+          ]}));
         }
       } catch { addLog('🤖 AI离线'); }
 
-      // 飞机搜索速度: 55格/回合 (SBD无畏 巡航280km/h ÷ 5km/格 ≈ 56格)
-      const ao2 = useNavalStore.getState().airOperations.map(a => ({
-        ...a,
-        x: a.x + 55, y: a.y + 35,
-        status: a.x > Math.max(pf?.position.globalX || 0, (fleets.find(f2 => f2.faction==='enemy')?.position.globalX || 1500)) + 300 ? '返航中' : a.status,
-      }));
+      // 飞机按航向移动 (heading决定方向, 55格/回合)
+      const ao2 = useNavalStore.getState().airOperations.map(a => {
+        const rad = a.heading * Math.PI / 180;
+        return {
+          ...a,
+          x: a.x + Math.cos(rad) * 55,
+          y: a.y + Math.sin(rad) * 55,
+          status: a.x > Math.max(pf?.position.globalX || 0, (fleets.find(f2 => f2.faction === 'enemy')?.position.globalX || 1500)) + 300 ? '返航中' : a.status,
+        };
+      });
       useNavalStore.setState({ airOperations: ao2.filter(a => a.x < 2800 && a.y < 1800).slice(-20) });
 
       // 轰炸机场: 攻击机经过敌方机场时造成破坏
