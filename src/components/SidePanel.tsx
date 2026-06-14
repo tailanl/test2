@@ -60,7 +60,7 @@ export function SidePanel() {
 
         // 区域搜索：根据方向放置飞机(扇形)
         if ((resp.includes('搜索') || resp.includes('侦察'))) {
-          const dirs = parseSearchDir(resp);
+          const dirs = parseSearchDir(resp, cs, pf?.position.globalX, pf?.position.globalY);
           // From fleet - place aircraft in the search direction
           if (pf) dirs.forEach((heading, i) => {
             const rad = heading * Math.PI / 180;
@@ -285,17 +285,72 @@ export function SidePanel() {
 
 function buildCtx(s: ReturnType<typeof useNavalStore.getState>) {
   const pf = s.fleets.find(f => f.faction === 'player');
-  let c = `回合${s.currentTurn+1}\n`;
-  if (pf) c += `舰队:${pf.ships.map(sh => `${sh.name}(${sh.shipClass})`).join(',')} [${pf.position.globalX},${pf.position.globalY}]\n`;
-  c += `接触:${s.intel.playerContacts.map(ct => `[${ct.detectionLevel}]`).join(',') || '无'}\n`;
-  c += `空中:${s.airOperations.length}批次\n请给战术命令(搜索/打击/撤退):`;
+  let c = `=== 第${s.currentTurn+1}回合 情报 ===\n\n`;
+
+  // 舰队状态
+  if (pf) {
+    c += `【己方舰队】${pf.name} 位置[${pf.position.globalX},${pf.position.globalY}] ${pf.ships.length}艘\n`;
+    for (const sh of pf.ships) {
+      const dmg = sh.damage.status !== 'combat_effective'
+        ? `⚠${sh.damage.status}(进水${sh.damage.flooding.toFixed(0)}% 火${sh.damage.fire.toFixed(0)}% 船体${sh.damage.hullIntegrity.toFixed(0)}%)`
+        : '';
+      const cv = sh.aircraft ? ` 舰载机:F${sh.aircraft.fighters}/DB${sh.aircraft.diveBombers}/TB${sh.aircraft.torpedoBombers}` : '';
+      c += `  ${sh.name}(${sh.shipClass}) HDG${sh.headingDeg}° ${sh.speedKts}kt${cv} ${dmg}\n`;
+    }
+  }
+
+  // 敌方接触
+  const cs = s.intel.playerContacts;
+  c += `\n【敌方接触】${cs.length}个\n`;
+
+  // 敌方舰队(开天眼情报)
+  const ef2 = s.fleets.find(f => f.faction === 'enemy');
+  if (ef2) {
+    c += `【敌方舰队】${ef2.name} [${ef2.position.globalX},${ef2.position.globalY}] ${ef2.ships.length}艘\n`;
+    for (const sh of ef2.ships) {
+      const dmg2 = sh.damage.status !== 'combat_effective'
+        ? `⚠${sh.damage.status}(进水${sh.damage.flooding.toFixed(0)}%)` : '';
+      c += `  ${sh.name}(${sh.shipClass}) HDG${sh.headingDeg}° ${sh.speedKts}kt ${dmg2}\n`;
+    }
+  }
+
+  if (cs.length === 0) c += `  无敌方接触 — 需要搜索\n`;
+  else for (const ct of cs) c += `  [${ct.detectionLevel}] ${ct.estimatedClass||'未知'} (${ct.lastKnownPosition.x.toFixed(0)},${ct.lastKnownPosition.y.toFixed(0)}) ±${ct.uncertaintyRadius.toFixed(0)}\n`;
+
+  // 空中任务
+  const ao = s.airOperations;
+  c += `\n【空中】${ao.length}批次\n`;
+  for (const a of ao.slice(-6)) c += `  ${a.type} ${a.fleetName} ${a.status} (${a.x.toFixed(0)},${a.y.toFixed(0)})\n`;
+
+  // 命令格式
+  c += `\n请按以下格式回复:\n`;
+  c += `【敌情判断】(1句话)\n`;
+  c += `【决心】(搜索/打击/撤退/机动)\n`;
+  c += `【方向】(东北/西北/东南/西南/东/南/西/北)\n`;
+  c += `【理由】(1句话)\n`;
   return c;
 }
 
 async function askLLM(ctx: string) {
   const r = await fetch('https://api.deepseek.com/v1/chat/completions', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer sk-7abe53292a3f4698af3a1475d8f1cd19' },
-    body: JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'system', content: '你是太平洋舰队指挥官。用中文回复战术命令。' }, { role: 'user', content: ctx }], temperature: 0.7, max_tokens: 200 }),
+    body: JSON.stringify({ model: 'deepseek-chat', messages: [
+      { role: 'system', content: `你是太平洋舰队司令官。每回合你需要先分析敌情，再下决心。
+
+决策原则:
+1. 无接触→搜索。方向判断:日军基地在西侧(横须贺/冲绳/特鲁克),应优先搜索西方或西北
+2. 有可疑接触[detected]→朝接触方向搜索以升级识别
+3. 有分类目标[classified/tracked]→派舰载机打击
+4. 己方舰船严重受损(进水>50%或船体<30%)→下令撤退
+5. 日军舰船速度快(34节),美军航速较慢(32节),保持距离
+
+回复格式必须包含:
+【敌情判断】
+【决心】
+【方向】
+【理由】` },
+      { role: 'user', content: ctx },
+    ], temperature: 0.7, max_tokens: 300 }),
   });
   if (!r.ok) throw new Error(`${r.status}`);
   return ((await r.json()) as any).choices?.[0]?.message?.content || '';
@@ -303,9 +358,9 @@ async function askLLM(ctx: string) {
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
-function parseSearchDir(resp: string): number[] {
+function parseSearchDir(resp: string, contacts?: Array<{ estimatedClass?: string; lastKnownPosition: { x: number; y: number } }>, fleetX?: number, fleetY?: number): number[] {
   const lower = resp.toLowerCase();
-  // Chinese + English direction support
+  // 1. LLM 指定了方向 → 用 LLM 的方向
   if (lower.includes('东北') || lower.includes('ne')) return [30, 45, 60, 75];
   if (lower.includes('西北') || lower.includes('nw')) return [300, 315, 330, 345];
   if (lower.includes('东南') || lower.includes('se')) return [120, 135, 150, 165];
@@ -314,6 +369,19 @@ function parseSearchDir(resp: string): number[] {
   if (lower.includes('南') || lower.includes('south')) return [165, 180, 195, 210];
   if (lower.includes('东') || lower.includes('east')) return [60, 75, 90, 105, 120];
   if (lower.includes('西') || lower.includes('west')) return [240, 255, 270, 285, 300];
-  // Default fan-shaped search toward enemy (if contacts exist)
+
+  // 2. LLM 没说方向但有接触 → 朝最近接触搜索
+  if (contacts && contacts.length > 0 && fleetX !== undefined && fleetY !== undefined) {
+    const nearest = contacts.reduce((a, b) => {
+      const da = Math.hypot(a.lastKnownPosition.x - fleetX, a.lastKnownPosition.y - fleetY);
+      const db = Math.hypot(b.lastKnownPosition.x - fleetX, b.lastKnownPosition.y - fleetY);
+      return da < db ? a : b;
+    });
+    const ang = Math.atan2(nearest.lastKnownPosition.y - fleetY, nearest.lastKnownPosition.x - fleetX) * 180 / Math.PI;
+    const base = ((ang % 360) + 360) % 360;
+    return [base - 30, base - 15, base, base + 15, base + 30].map(a => ((a % 360) + 360) % 360);
+  }
+
+  // 3. 都不知道 → 全周搜索
   return [0, 60, 120, 180, 240, 300];
 }
