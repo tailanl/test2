@@ -11,6 +11,7 @@ import { updateCampaignMemory, createCampaignMemory, type CampaignMemory } from 
 import { generateSearchPlan } from './search-planner';
 import { assessThreat } from './threat-assessment';
 import { getDoctrineForPhase } from './naval-doctrine';
+import { getGLMReview } from './glm-provider';
 import type { LLMDecisionContext, LLMCommanderDecision } from './llm-decision-types';
 import type { FactionKnowledgeState } from '../game/naval/intel/faction-knowledge-types';
 
@@ -72,7 +73,16 @@ export async function runAITurnPipeline(params: {
   const doctrine = getDoctrineForPhase(state.currentPhase || '');
   context.legalActionHints.push(`doctrine:${doctrine.type}`);
 
-  // 7. LLM Decision
+  // 6b. GLM快速审查 (免费模型先看一遍，给DeepSeek参考)
+  const glmReview = await getGLMReview(JSON.stringify({
+    turn: context.turn, faction: context.faction, posture: context.strategicSituation.posture,
+    forces: context.ownForces.length, contacts: context.knownContacts.length, threats: threat.overallThreat,
+  }, null, 2));
+  if (glmReview) {
+    context.legalActionHints.push(`glm_review:${glmReview.slice(0, 150)}`);
+  }
+
+  // 7. LLM Decision (DeepSeek, with GLM review context)
   let decision: LLMCommanderDecision | null = null;
   let validation: ReturnType<typeof validateLLMCommanderDecision> | null = null;
   let execution: ReturnType<typeof executeLLMDecisionActions> | null = null;
