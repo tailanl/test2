@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavalStore } from '@/store/naval-store';
+import { getAPIKey, setAPIKey } from '@/ai/api-key';
 
 export function SidePanel() {
   const overlay = useNavalStore(s => s.overlay);
@@ -218,6 +219,13 @@ export function SidePanel() {
         <h1 className="text-2xl font-black text-white text-center tracking-widest">太平洋<br/>舰队司令部</h1>
         <div className="h-0.5 w-20 bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
         <p className="text-xs text-slate-400 text-center leading-relaxed">战略图 1500×1000 · 1格≈2km<br/>16个岛链 · 美东日西 · 航母航空战<br/>遭遇战: 击沉敌方舰队即胜利</p>
+        <input
+          type="password"
+          placeholder="DeepSeek API Key (sk-...)"
+          defaultValue={getAPIKey()}
+          onChange={e => setAPIKey(e.target.value)}
+          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-amber-500/50"
+        />
         <button onClick={createScenario} disabled={isCreating}
           className="w-full py-3.5 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-700 text-white font-bold rounded-lg text-base transition-colors">
           {isCreating ? '正在生成太平洋...' : '⚡ 部署舰队'}
@@ -364,20 +372,9 @@ function buildCtx(s: ReturnType<typeof useNavalStore.getState>) {
     }
   }
 
-  // 敌方接触
+  // 敌方接触 (仅从侦察获得，不泄露真实敌方)
   const cs = s.intel.playerContacts;
   c += `\n【敌方接触】${cs.length}个\n`;
-
-  // 敌方舰队(开天眼情报)
-  const ef2 = s.fleets.find(f => f.faction === 'enemy');
-  if (ef2) {
-    c += `【敌方舰队】${ef2.name} [${ef2.position.globalX},${ef2.position.globalY}] ${ef2.ships.length}艘\n`;
-    for (const sh of ef2.ships) {
-      const dmg2 = sh.damage.status !== 'combat_effective'
-        ? `⚠${sh.damage.status}(进水${sh.damage.flooding.toFixed(0)}%)` : '';
-      c += `  ${sh.name}(${sh.shipClass}) HDG${sh.headingDeg}° ${sh.speedKts}kt ${dmg2}\n`;
-    }
-  }
 
   if (cs.length === 0) c += `  无敌方接触 — 需要搜索\n`;
   else for (const ct of cs) c += `  [${ct.detectionLevel}] ${ct.estimatedClass||'未知'} (${ct.lastKnownPosition.x.toFixed(0)},${ct.lastKnownPosition.y.toFixed(0)}) ±${ct.uncertaintyRadius.toFixed(0)}\n`;
@@ -397,8 +394,10 @@ function buildCtx(s: ReturnType<typeof useNavalStore.getState>) {
 }
 
 async function askLLM(ctx: string) {
+  const key = getAPIKey();
+  if (!key) return '请先输入 API Key';
   const r = await fetch('https://api.deepseek.com/v1/chat/completions', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer sk-7abe53292a3f4698af3a1475d8f1cd19' },
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
     body: JSON.stringify({ model: 'deepseek-chat', messages: [
       { role: 'system', content: `你是太平洋舰队司令官。每回合你需要先分析敌情，再下决心。
 
