@@ -73,11 +73,25 @@ export async function runAITurnPipeline(params: {
   const doctrine = getDoctrineForPhase(state.currentPhase || '');
   context.legalActionHints.push(`doctrine:${doctrine.type}`);
 
-  // 6b. GLM快速审查 (免费模型先看一遍，给DeepSeek参考)
-  const glmReview = await getGLMReview(JSON.stringify({
-    turn: context.turn, faction: context.faction, posture: context.strategicSituation.posture,
-    forces: context.ownForces.length, contacts: context.knownContacts.length, threats: threat.overallThreat,
-  }, null, 2));
+  // 6b. GLM快速审查 (带精确方位距离)
+  const glmReview = await getGLMReview({
+    ownPosition: {
+      name: context.ownForces[0]?.name || 'Fleet',
+      x: context.ownForces[0]?.position?.x || 0,
+      y: context.ownForces[0]?.position?.y || 0,
+    },
+    ownShips: (state.fleets?.find((f: any) => f.faction === faction)?.ships || []).map((s: any) => ({
+      name: s.name, cls: s.shipClass, hdg: s.headingDeg, spd: s.speedKts,
+      damaged: s.damage?.status !== 'combat_effective' ? `${s.damage?.status} 进水${s.damage?.flooding?.toFixed(0)}%` : undefined,
+    })),
+    contacts: context.knownContacts.map(c => ({
+      id: c.contactId, level: c.detectionLevel, estClass: c.estimatedClass || 'unknown',
+      x: c.lastKnownPosition.x, y: c.lastKnownPosition.y,
+      radius: c.uncertaintyRadius, conf: c.confidence,
+    })),
+    weather: state.weather || 'clear',
+    turn: state.currentTurn,
+  });
   if (glmReview) {
     context.legalActionHints.push(`glm_review:${glmReview.slice(0, 150)}`);
   }
