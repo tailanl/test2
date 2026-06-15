@@ -55,6 +55,13 @@ export interface LLMDecisionContext {
   };
 
   legalActionHints: string[];
+  visualAssessment?: {
+    assessment: string;
+    bearingSummary: string;
+    threatRanking: Array<{ contact: string; bearing: number; dist: number; threat: string }>;
+    recommendation: string;
+    model: string;
+  };
 }
 
 // ========== LLMCommanderDecision ==========

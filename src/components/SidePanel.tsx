@@ -3,6 +3,7 @@ import { useNavalStore } from '@/store/naval-store';
 import { getAPIKey, setAPIKey } from '@/ai/api-key';
 import { LLMKnowledgePanel } from './LLMKnowledgePanel';
 import { AfterActionReviewPanel } from './AfterActionReviewPanel';
+import { AIProviderSettingsPanel } from './AIProviderSettingsPanel';
 import { buildFactionKnowledge, sanitizeKnowledgeForLLM } from '@/ai/information-filter';
 import { requestLLMCommanderDecision } from '@/ai/llm-commander-provider';
 import { validateLLMCommanderDecision } from '@/ai/llm-decision-validator';
@@ -266,6 +267,9 @@ export function SidePanel() {
 
       {/* LLM 可见情报 */}
       <LLMKnowledgePanel />
+
+      {/* AI 提供商设置 */}
+      <AIProviderSettingsPanel />
 
       {/* 战后复盘 */}
       <AfterActionReviewPanel />

@@ -11,7 +11,9 @@ import { updateCampaignMemory, createCampaignMemory, type CampaignMemory } from 
 import { generateSearchPlan } from './search-planner';
 import { assessThreat } from './threat-assessment';
 import { getDoctrineForPhase } from './naval-doctrine';
-import { getGLMReview } from './glm-provider';
+import { requestGLMVisualAssessment, shouldRunGLMVisualAssessment, bearingAndDist } from './glm-provider';
+import { getGLMKey } from './api-key';
+import { GLM_DEFAULTS } from './glm-config';
 import type { LLMDecisionContext, LLMCommanderDecision } from './llm-decision-types';
 import type { FactionKnowledgeState } from '../game/naval/intel/faction-knowledge-types';
 
@@ -73,30 +75,43 @@ export async function runAITurnPipeline(params: {
   const doctrine = getDoctrineForPhase(state.currentPhase || '');
   context.legalActionHints.push(`doctrine:${doctrine.type}`);
 
-  // 6b. GLM快速审查 (带精确方位距离)
-  const glmReview = await getGLMReview({
-    ownPosition: {
-      name: context.ownForces[0]?.name || 'Fleet',
-      x: context.ownForces[0]?.position?.x || 0,
-      y: context.ownForces[0]?.position?.y || 0,
-    },
-    ownShips: (state.fleets?.find((f: any) => f.faction === faction)?.ships || []).map((s: any) => ({
-      name: s.name, cls: s.shipClass, hdg: s.headingDeg, spd: s.speedKts,
-      damaged: s.damage?.status !== 'combat_effective' ? `${s.damage?.status} 进水${s.damage?.flooding?.toFixed(0)}%` : undefined,
-    })),
-    contacts: context.knownContacts.map(c => ({
-      id: c.contactId, level: c.detectionLevel, estClass: c.estimatedClass || 'unknown',
-      x: c.lastKnownPosition.x, y: c.lastKnownPosition.y,
-      radius: c.uncertaintyRadius, conf: c.confidence,
-    })),
-    weather: state.weather || 'clear',
+  // 6b. GLM Visual Assessment (only on trigger conditions, not every turn)
+  const shouldRunGLM = shouldRunGLMVisualAssessment({
+    strategy: GLM_DEFAULTS.strategy,
     turn: state.currentTurn,
+    newContactThisTurn: context.knownContacts.some(c => c.lastDetectedTurn === state.currentTurn),
+    contactUpgraded: context.knownContacts.some(c => c.detectionLevel === 'classified' || c.detectionLevel === 'identified' || c.detectionLevel === 'tracked'),
+    carrierDamaged: (state.fleets?.find((f: any) => f.faction === faction)?.ships || []).some((s: any) => s.shipClass?.includes('carrier') && s.damage?.status !== 'combat_effective'),
+    strikePlanned: false,
+    manualRequest: false,
   });
-  if (glmReview) {
-    context.legalActionHints.push(`glm_review:${glmReview.slice(0, 150)}`);
+
+  if (shouldRunGLM) {
+    try {
+      const ownPos = context.ownForces[0];
+      const textualCtx = context.knownContacts.map(c => {
+        const bd = bearingAndDist(ownPos?.position?.x || 0, ownPos?.position?.y || 0, c.lastKnownPosition.x, c.lastKnownPosition.y);
+        return `[${c.detectionLevel}] ${c.estimatedClass||'?'} 方位:${bd.bearing}°(${bd.bearingLabel}) 距离:${bd.dist}格`;
+      }).join('\n');
+
+      const glmResult = await requestGLMVisualAssessment({
+        config: { apiKey: getGLMKey() },
+        textualContext: `本队:${ownPos?.name||'Fleet'}(${ownPos?.position?.x},${ownPos?.position?.y}) 天气:${state.weather||'clear'}\n${textualCtx}`,
+      });
+
+      if (glmResult.success) {
+        context.visualAssessment = {
+          assessment: glmResult.assessment,
+          bearingSummary: glmResult.bearingSummary,
+          threatRanking: glmResult.threatRanking,
+          recommendation: glmResult.recommendation,
+          model: glmResult.model,
+        };
+      }
+    } catch { /* GLM offline, continue without visual assessment */ }
   }
 
-  // 7. LLM Decision (DeepSeek, with GLM review context)
+  // 7. LLM Decision (DeepSeek, with GLM visualAssessment if available) (DeepSeek, with GLM review context)
   let decision: LLMCommanderDecision | null = null;
   let validation: ReturnType<typeof validateLLMCommanderDecision> | null = null;
   let execution: ReturnType<typeof executeLLMDecisionActions> | null = null;
