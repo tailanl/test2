@@ -619,11 +619,9 @@ function mergeContacts(existing: NavalContact[], newContact: NavalContact): Nava
 // ===== 导入 API Key（从 Vite env vars） =====
 
 function getDeepSeekApiKey(): string {
-  // Vite exposes env vars via import.meta.env for VITE_ prefixed vars
-  // For standalone access, read from the store or localStorage
   if (typeof localStorage !== 'undefined') {
     const stored = localStorage.getItem('deepseek_api_key');
     if (stored) return stored;
   }
-  return 'sk-b895a96126db4365ba217ef5b8d1d795';
+  return '';
 }

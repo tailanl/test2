@@ -6,6 +6,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavalStore } from '@/store/naval-store';
 import { captureTurnSnapshot, downloadReplay, loadReplayFromFile } from '@/ai/replay-system';
 import type { ReplayFile, ReplayTurnSnapshot } from '@/ai/replay-system';
+import { getAPIKey } from '@/ai/api-key';
 
 export function NavalCampaignPanel() {
   const store = useNavalStore;
@@ -47,7 +48,7 @@ export function NavalCampaignPanel() {
           enemyFleets: state.fleets.filter((f:any) => f.faction === 'enemy'),
           contacts: state.intel.playerContacts, environment: state.environment,
           recentReports: state.reports.slice(-5), battleLog: state.battleLog.slice(-10) };
-        const d = await getLLMCampaignDecision({ ...state.aiConfig, apiKey: 'sk-b895a96126db4365ba217ef5b8d1d795' }, ts as any);
+        const d = await getLLMCampaignDecision({ ...state.aiConfig, apiKey: getAPIKey() }, ts as any);
         llmDecision = { situation: d.situation, orders: d.shipOrders.length };
         addLog(`🤖 ${d.situation}`);
         for (const o of d.shipOrders) addLog(`  📋 ${(o as any).action}: ${(o as any).reason || ''}`);
