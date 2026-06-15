@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavalStore } from '@/store/naval-store';
 import { getAPIKey, setAPIKey } from '@/ai/api-key';
+import { LLMKnowledgePanel } from './LLMKnowledgePanel';
 
 export function SidePanel() {
   const overlay = useNavalStore(s => s.overlay);
@@ -315,6 +316,9 @@ export function SidePanel() {
           ))}
         </div>
       )}
+
+      {/* LLM 可见情报 */}
+      <LLMKnowledgePanel />
 
       {/* 情报 */}
       <div className="px-5 py-3 border-b border-slate-800/50">

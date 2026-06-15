@@ -1,58 +1,66 @@
 /**
- * Campaign Memory - LLM 计划结果记忆
- * 每回合记录计划成功/失败，供 Strategic Director 参考
+ * Campaign Memory - 增强版，带 Update 函数
  */
+
+import type { LLMCommanderDecision } from './llm-decision-types';
 
 export interface PlanRecord {
   turn: number;
-  objectiveId: string;
-  intendedAction: string;
-  expectedResult: string;
-  actualResult?: string;
+  decisionIntent: string;
+  acceptedActions: string[];
+  rejectedActions: string[];
+  expectedOutcome: string;
+  actualOutcome?: string;
   success?: boolean;
   lesson?: string;
 }
 
 export interface CampaignMemory {
-  plans: PlanRecord[];
+  records: PlanRecord[];
   recurringProblems: string[];
   enemyPatternEstimates: string[];
   playerDoctrine: string[];
 }
 
 export function createCampaignMemory(): CampaignMemory {
-  return {
-    plans: [],
-    recurringProblems: [],
-    enemyPatternEstimates: [],
-    playerDoctrine: ['carrier_strike_priority', 'island_hopping', 'submarine_interdiction'],
+  return { records: [], recurringProblems: [], enemyPatternEstimates: [], playerDoctrine: ['carrier_strike_priority', 'island_hopping', 'submarine_interdiction'] };
+}
+
+export function recordPlan(memory: CampaignMemory, record: PlanRecord): CampaignMemory {
+  return { ...memory, records: [...memory.records, record] };
+}
+
+export function updateCampaignMemory(params: {
+  memory: CampaignMemory;
+  previousDecision: LLMCommanderDecision;
+  acceptedActions: string[];
+  rejectedActions: string[];
+  reportsAfterTurn: Array<{ type: string; summary: string }>;
+  turn: number;
+}): CampaignMemory {
+  const record: PlanRecord = {
+    turn: params.turn,
+    decisionIntent: params.previousDecision.intent,
+    acceptedActions: params.acceptedActions,
+    rejectedActions: params.rejectedActions,
+    expectedOutcome: params.previousDecision.assessment,
+    actualOutcome: params.reportsAfterTurn.map(r => r.summary).join('; '),
+    success: params.rejectedActions.length === 0,
+    lesson: params.rejectedActions.length > 0 ? `Rejected ${params.rejectedActions.length} actions: ${params.rejectedActions.join(', ')}` : undefined,
   };
-}
 
-export function recordPlan(memory: CampaignMemory, plan: PlanRecord): CampaignMemory {
-  return { ...memory, plans: [...memory.plans, plan] };
-}
-
-export function recordResult(memory: CampaignMemory, turn: number, objectiveId: string, result: string, success: boolean): CampaignMemory {
-  const updatedPlans = memory.plans.map(p => {
-    if (p.turn === turn && p.objectiveId === objectiveId) {
-      return { ...p, actualResult: result, success, lesson: success ? '' : `Avoid: ${p.intendedAction} failed due to ${result}` };
-    }
-    return p;
-  });
-
-  const problems = memory.recurringProblems;
-  if (!success && memory.plans.filter(p => !p.success).length >= 3) {
-    if (!problems.includes(result)) problems.push(result);
+  const updated = recordPlan(params.memory, record);
+  const newProblems = [...updated.recurringProblems];
+  if (params.rejectedActions.length >= 2 && !newProblems.includes('LLM attempting illegal actions')) {
+    newProblems.push('LLM attempting illegal actions');
   }
 
-  return { ...memory, plans: updatedPlans, recurringProblems: problems };
+  return { ...updated, recurringProblems: newProblems };
 }
 
 export function getMemorySummary(memory: CampaignMemory): string {
-  let s = `Campaign Memory:\n`;
-  s += `Plans: ${memory.plans.length} (${memory.plans.filter(p => p.success).length} success, ${memory.plans.filter(p => p.success === false).length} fail)\n`;
-  if (memory.recurringProblems.length > 0) s += `Problems: ${memory.recurringProblems.join('; ')}\n`;
-  if (memory.enemyPatternEstimates.length > 0) s += `Enemy patterns: ${memory.enemyPatternEstimates.join('; ')}\n`;
+  let s = `Records:${memory.records.length} `;
+  s += `Success:${memory.records.filter(r => r.success).length} Fail:${memory.records.filter(r => r.success === false).length}`;
+  if (memory.recurringProblems.length > 0) s += ` Problems:${memory.recurringProblems.join(';')}`;
   return s;
 }
