@@ -2,6 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavalStore } from '@/store/naval-store';
 import { getAPIKey, setAPIKey } from '@/ai/api-key';
 import { LLMKnowledgePanel } from './LLMKnowledgePanel';
+import { buildFactionKnowledge, sanitizeKnowledgeForLLM } from '@/ai/information-filter';
+import { requestLLMCommanderDecision } from '@/ai/llm-commander-provider';
+import { validateLLMCommanderDecision } from '@/ai/llm-decision-validator';
+import { executeLLMDecisionActions } from '@/ai/llm-decision-executor';
+import { updateCampaignMemory, createCampaignMemory } from '@/ai/campaign-memory';
+import type { CampaignMemory } from '@/ai/campaign-memory';
 
 export function SidePanel() {
   const overlay = useNavalStore(s => s.overlay);
@@ -22,6 +28,7 @@ export function SidePanel() {
   const selectFleet = useNavalStore(s => s.selectFleet);
 
   const [running, setRunning] = useState(false);
+  const [campaignMem, setCampaignMem] = useState<CampaignMemory>(createCampaignMemory());
   const [turns, setTurns] = useState(30);
   const [log, setLog] = useState<string[]>([]);
   const [report, setReport] = useState('');
@@ -58,104 +65,43 @@ export function SidePanel() {
       if (ao.length > 0) { addLog(`✈️ 空中:${ao.length}批次`); ao.forEach(a => addLog(`  ${a.type} ${a.fleetName} ×${a.aircraft} (${a.x},${a.y})`)); }
 
       try {
-        const ctx = buildCtx(s);
-        const resp = await askLLM(ctx);
-        addLog(`🤖 AI: ${resp.slice(0, 160)}`);
+        // 新LLM管线
+        const truth = { turn: s.currentTurn, weather: 'clear', playerFleets: s.fleets.filter(f => f.faction === 'player') as any, enemyFleets: s.fleets.filter(f => f.faction === 'enemy') as any, allBases: [], allSupplyLines: [] };
+        const knowledge = buildFactionKnowledge({ faction: 'player', truth, intel: s.intel, reports: s.reports, currentTurn: s.currentTurn, memory: campaignMem });
+        const ctx = sanitizeKnowledgeForLLM(knowledge);
+        addLog(`🤖 LLM: ${ctx.ownForces.length}舰队 ${ctx.knownContacts.length}接触 ${ctx.legalActionHints.length}合法行动`);
 
-        // 区域搜索：根据方向放置飞机(扇形)
-        if ((resp.includes('搜索') || resp.includes('侦察'))) {
-          const dirs = parseSearchDir(resp, cs, pf?.position.globalX, pf?.position.globalY);
-          // From fleet - place aircraft in the search direction
-          if (pf) dirs.forEach((heading, i) => {
-            const rad = heading * Math.PI / 180;
-            const offset = (i - dirs.length / 2) * 10;
-            useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations,
-              { id: `s_fleet_${t}_${i}`, type: 'search', aircraft: 2,
-                x: pf.position.globalX + Math.cos(rad) * 35 + Math.sin(rad) * offset,
-                y: pf.position.globalY + Math.sin(rad) * 35 - Math.cos(rad) * offset,
-                heading, fleetName: pf.name, status: '搜索中' }
-            ]}));
+        const decision = await requestLLMCommanderDecision({ context: ctx, role: 'player_advisor' });
+        if (decision) {
+          addLog(`  📋 ${decision.assessment.slice(0,100)}`);
+          const validation = validateLLMCommanderDecision({ decision, context: ctx, knowledge });
+          addLog(`  ✅${validation.acceptedActions.length}/❌${validation.rejectedActions.length}`);
+          validation.rejectedActions.forEach(r => addLog(`    ❌ ${r.reason}`));
+          validation.acceptedActions.forEach(a => {
+            if (a.type === 'launch_search' && pf) useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations, { id: `llm_${t}`, type: 'search', x: pf.position.globalX + 30, y: pf.position.globalY, heading: 315, fleetName: pf.name, status: '搜索中', aircraft: 4 }] }));
+            if (a.type === 'launch_strike' && pf) useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations, { id: `st_${t}`, type: 'strike', x: pf.position.globalX + 50, y: pf.position.globalY + 30, heading: 270, fleetName: pf.name, status: '进攻中', aircraft: 6 }] }));
+            addLog(`    ⚡ ${a.type}`);
           });
-          // From land airfields - also place in search direction
-          landAfs.filter(a => a.faction === 'player' && a.bombers > 0).slice(0, 2).forEach(af => {
-            const rad = (dirs[0] || 45) * Math.PI / 180;
-            useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations,
-              { id: `s_land_${t}_${af.id}`, type: 'search', aircraft: 2,
-                x: af.x + Math.cos(rad) * 25,
-                y: af.y + Math.sin(rad) * 25,
-                heading: dirs[0] || 45, fleetName: af.name, status: '搜索中' }
-            ]}));
-          });
-          addLog(`  ✈️ 扇形搜索: ${dirs.length}方向, 航母+陆基`);
-        }
-        if ((resp.includes('打击') || resp.includes('攻击')) && pf) {
-          const enemyDir = pf.position.globalX > 1500 ? 270 : 315;
-          const rad = enemyDir * Math.PI / 180;
-          useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations,
-            { id: `st_${t}`, type: 'strike', x: pf.position.globalX + Math.cos(rad) * 40, y: pf.position.globalY + Math.sin(rad) * 40, heading: enemyDir, fleetName: pf.name, status: '进攻中', aircraft: 6 }
-          ]}));
-        }
+          setCampaignMem(newMem => updateCampaignMemory({ memory: newMem, previousDecision: decision, acceptedActions: validation.acceptedActions.map(a => a.type), rejectedActions: validation.rejectedActions.map(a => a.reason), reportsAfterTurn: [], turn: s.currentTurn }));
+        } else { addLog('🤖 LLM离线'); if (pf) useNavalStore.setState(s2 => ({ airOperations: [...s2.airOperations, { id: `fb_${t}`, type: 'search', x: pf.position.globalX + 30, y: pf.position.globalY, heading: 315, fleetName: pf.name, status: '搜索中', aircraft: 4 }] })); }
+      } catch (e: any) { addLog(`🤖 LLM错误: ${String(e).slice(0,80)}`); }
 
-        // === 舰队移动 ===
-        if (pf) {
-          let moveDir = 0; let moveDist = 0;
-
-          // 解析LLM的移动命令
-          if (resp.includes('拦截') || resp.includes('追击') || resp.includes('接近')) moveDist = 15;
-          else if (resp.includes('撤退') || resp.includes('撤离') || resp.includes('退避')) moveDist = -10;
-          else if (resp.includes('机动') || resp.includes('前进') || resp.includes('移动')) moveDist = 10;
-
-          // 方向
-          if (resp.includes('东北') || resp.includes('NE')) moveDir = 45;
-          else if (resp.includes('西北') || resp.includes('NW')) moveDir = 315;
-          else if (resp.includes('东南') || resp.includes('SE')) moveDir = 135;
-          else if (resp.includes('西南') || resp.includes('SW')) moveDir = 225;
-          else if (resp.includes('东') || resp.includes('east')) moveDir = 90;
-          else if (resp.includes('西') || resp.includes('west')) moveDir = 270;
-          else if (resp.includes('南') || resp.includes('south')) moveDir = 180;
-          else if (resp.includes('北') || resp.includes('north')) moveDir = 0;
-
-          // 无方向但有移动意愿 → 朝敌方方向
-          if (moveDist !== 0 && moveDir === 0) {
-            const efPos2 = s.fleets.find(f => f.faction === 'enemy');
-            if (efPos2) moveDir = Math.atan2(efPos2.position.globalY - pf.position.globalY, efPos2.position.globalX - pf.position.globalX) * 180 / Math.PI;
-            else moveDir = 270; // default west toward Japan
-          }
-
-          if (moveDist !== 0) {
-            const rad2 = moveDir * Math.PI / 180;
-            const oldX = pf.position.globalX, oldY = pf.position.globalY;
-            pf.position.globalX += Math.round(Math.cos(rad2) * moveDist);
-            pf.position.globalY += Math.round(Math.sin(rad2) * moveDist);
-            // Also move ships
-            for (const sh of pf.ships) {
-              sh.position.x += Math.round(Math.cos(rad2) * moveDist);
-              sh.position.y += Math.round(Math.sin(rad2) * moveDist);
-              sh.headingDeg = moveDir;
-            }
-            addLog(`  🚢 舰队机动: (${oldX},${oldY})→(${pf.position.globalX},${pf.position.globalY}) ${moveDist}格 ${['N','NE','E','SE','S','SW','W','NW'][Math.round(moveDir/45)%8]}`);
+      // 敌方舰队自动向玩家靠近
+      const ef2 = s.fleets.find(f => f.faction === 'enemy');
+      if (ef2 && pf) {
+        const edx = pf.position.globalX - ef2.position.globalX;
+        const edy = pf.position.globalY - ef2.position.globalY;
+        const edist = Math.sqrt(edx*edx + edy*edy);
+        if (edist > 50) {
+          const moveStep = Math.min(12, edist * 0.12);
+          ef2.position.globalX += Math.round(edx / edist * moveStep);
+          ef2.position.globalY += Math.round(edy / edist * moveStep);
+          for (const sh of ef2.ships) {
+            sh.position.x += Math.round(edx / edist * moveStep);
+            sh.position.y += Math.round(edy / edist * moveStep);
           }
         }
-
-        // 敌方舰队自动向玩家靠近
-        const ef2 = s.fleets.find(f => f.faction === 'enemy');
-        if (ef2 && pf) {
-          const edx = pf.position.globalX - ef2.position.globalX;
-          const edy = pf.position.globalY - ef2.position.globalY;
-          const edist = Math.sqrt(edx*edx + edy*edy);
-          if (edist > 50) {
-            const moveStep = Math.min(12, edist * 0.12);
-            ef2.position.globalX += Math.round(edx / edist * moveStep);
-            ef2.position.globalY += Math.round(edy / edist * moveStep);
-            for (const sh of ef2.ships) {
-              sh.position.x += Math.round(edx / edist * moveStep);
-              sh.position.y += Math.round(edy / edist * moveStep);
-            }
-          }
-        }
-      } catch { addLog('🤖 AI离线'); }
-
-      // 飞机移动: 20格/回合 (150km/h巡航, 1格=2km)
+      }
       const ao2 = useNavalStore.getState().airOperations.map(a => {
         const rad = a.heading * Math.PI / 180;
         return {

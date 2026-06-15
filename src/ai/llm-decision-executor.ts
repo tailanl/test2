@@ -63,7 +63,7 @@ export function executeLLMDecisionActions(params: {
           else failed.push({ action, reason: 'Missing baseId' });
           break;
         default:
-          executed.push({ action, result: 'Action type not implemented' });
+          failed.push({ action, reason: `Action type '${action.type}' not implemented` });
       }
     } catch (e: any) {
       failed.push({ action, reason: String(e) });
