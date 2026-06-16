@@ -1,13 +1,7 @@
-/**
- * 舰船武器系统
- */
-
-import type { NavalContact } from '../intel/naval-intel-types';
-import type { NavalIntelState } from '../intel/naval-intel-types';
+import type { NavalContact, NavalIntelState } from '../intel/naval-intel-types';
 import type { NavalEnvironmentState } from '../naval-types';
 import type { NavalShip } from './ship-types';
-
-// ===== 武器类型 =====
+import { getWeaponSystemReadiness } from './ship-combat-profile';
 
 export type NavalWeaponType =
   | 'main_gun'
@@ -20,11 +14,7 @@ export type NavalWeaponType =
   | 'torpedo_bomber'
   | 'fighter';
 
-// ===== 射界 =====
-
 export type WeaponArc = 'forward' | 'aft' | 'port' | 'starboard' | 'all';
-
-// ===== 武器基座 =====
 
 export interface ShipWeaponMount {
   id: string;
@@ -41,8 +31,6 @@ export interface ShipWeaponMount {
   moduleId?: string;
 }
 
-// ===== 武器命中结果 =====
-
 export interface WeaponHitResult {
   success: boolean;
   hitLocation?: string;
@@ -51,13 +39,37 @@ export interface WeaponHitResult {
   reason: string;
 }
 
-// ===== 创建默认武器基座 =====
-
 let weaponIdCounter = 0;
 
 function nextWpnId(): string {
   weaponIdCounter++;
   return `wpn_${weaponIdCounter}`;
+}
+
+function mount(
+  type: NavalWeaponType,
+  name: string,
+  arc: WeaponArc,
+  range: number,
+  reloadTurns: number,
+  accuracy: number,
+  penetration: number,
+  explosivePower: number,
+  ammo: number,
+): ShipWeaponMount {
+  return {
+    id: nextWpnId(),
+    type,
+    name,
+    arc,
+    range,
+    reloadTurns,
+    cooldown: 0,
+    accuracy,
+    penetration,
+    explosivePower,
+    ammo,
+  };
 }
 
 export function createDefaultWeaponMounts(shipClass: string): ShipWeaponMount[] {
@@ -68,63 +80,63 @@ export function createDefaultWeaponMounts(shipClass: string): ShipWeaponMount[] 
     case 'light_carrier':
     case 'escort_carrier':
       weapons.push(
-        { id: nextWpnId(), type: 'aa_gun', name: 'AA Battery Forward', arc: 'forward', range: 8, reloadTurns: 1, cooldown: 0, accuracy: 0.5, penetration: 1, explosivePower: 3, ammo: 9999 },
-        { id: nextWpnId(), type: 'aa_gun', name: 'AA Battery Midships Port', arc: 'port', range: 8, reloadTurns: 1, cooldown: 0, accuracy: 0.5, penetration: 1, explosivePower: 3, ammo: 9999 },
-        { id: nextWpnId(), type: 'aa_gun', name: 'AA Battery Midships Starboard', arc: 'starboard', range: 8, reloadTurns: 1, cooldown: 0, accuracy: 0.5, penetration: 1, explosivePower: 3, ammo: 9999 },
-        { id: nextWpnId(), type: 'aa_gun', name: 'AA Battery Aft', arc: 'aft', range: 8, reloadTurns: 1, cooldown: 0, accuracy: 0.5, penetration: 1, explosivePower: 3, ammo: 9999 },
+        mount('aa_gun', 'AA Battery Forward', 'forward', 8, 1, 0.5, 1, 3, 9999),
+        mount('aa_gun', 'AA Battery Midships Port', 'port', 8, 1, 0.5, 1, 3, 9999),
+        mount('aa_gun', 'AA Battery Midships Starboard', 'starboard', 8, 1, 0.5, 1, 3, 9999),
+        mount('aa_gun', 'AA Battery Aft', 'aft', 8, 1, 0.5, 1, 3, 9999),
       );
       break;
 
     case 'battleship':
       weapons.push(
-        { id: nextWpnId(), type: 'main_gun', name: 'Main Battery Forward', arc: 'forward', range: 35, reloadTurns: 3, cooldown: 0, accuracy: 0.15, penetration: 80, explosivePower: 20, ammo: 100 },
-        { id: nextWpnId(), type: 'main_gun', name: 'Main Battery Aft', arc: 'aft', range: 35, reloadTurns: 3, cooldown: 0, accuracy: 0.15, penetration: 80, explosivePower: 20, ammo: 100 },
-        { id: nextWpnId(), type: 'secondary_gun', name: 'Secondary Port', arc: 'port', range: 20, reloadTurns: 2, cooldown: 0, accuracy: 0.25, penetration: 30, explosivePower: 8, ammo: 200 },
-        { id: nextWpnId(), type: 'secondary_gun', name: 'Secondary Starboard', arc: 'starboard', range: 20, reloadTurns: 2, cooldown: 0, accuracy: 0.25, penetration: 30, explosivePower: 8, ammo: 200 },
-        { id: nextWpnId(), type: 'aa_gun', name: 'AA Battery Forward', arc: 'forward', range: 8, reloadTurns: 1, cooldown: 0, accuracy: 0.45, penetration: 1, explosivePower: 3, ammo: 9999 },
-        { id: nextWpnId(), type: 'aa_gun', name: 'AA Battery Midships', arc: 'all', range: 8, reloadTurns: 1, cooldown: 0, accuracy: 0.45, penetration: 1, explosivePower: 3, ammo: 9999 },
-        { id: nextWpnId(), type: 'aa_gun', name: 'AA Battery Aft', arc: 'aft', range: 8, reloadTurns: 1, cooldown: 0, accuracy: 0.45, penetration: 1, explosivePower: 3, ammo: 9999 },
+        mount('main_gun', 'Main Battery Forward', 'forward', 35, 3, 0.15, 80, 20, 100),
+        mount('main_gun', 'Main Battery Aft', 'aft', 35, 3, 0.15, 80, 20, 100),
+        mount('secondary_gun', 'Secondary Port', 'port', 20, 2, 0.25, 30, 8, 200),
+        mount('secondary_gun', 'Secondary Starboard', 'starboard', 20, 2, 0.25, 30, 8, 200),
+        mount('aa_gun', 'AA Battery Forward', 'forward', 8, 1, 0.45, 1, 3, 9999),
+        mount('aa_gun', 'AA Battery Midships', 'all', 8, 1, 0.45, 1, 3, 9999),
+        mount('aa_gun', 'AA Battery Aft', 'aft', 8, 1, 0.45, 1, 3, 9999),
       );
       break;
 
     case 'heavy_cruiser':
       weapons.push(
-        { id: nextWpnId(), type: 'main_gun', name: '8-inch Forward', arc: 'forward', range: 28, reloadTurns: 3, cooldown: 0, accuracy: 0.18, penetration: 50, explosivePower: 12, ammo: 120 },
-        { id: nextWpnId(), type: 'main_gun', name: '8-inch Aft', arc: 'aft', range: 28, reloadTurns: 3, cooldown: 0, accuracy: 0.18, penetration: 50, explosivePower: 12, ammo: 120 },
-        { id: nextWpnId(), type: 'secondary_gun', name: '5-inch Port', arc: 'port', range: 18, reloadTurns: 2, cooldown: 0, accuracy: 0.25, penetration: 20, explosivePower: 6, ammo: 200 },
-        { id: nextWpnId(), type: 'secondary_gun', name: '5-inch Starboard', arc: 'starboard', range: 18, reloadTurns: 2, cooldown: 0, accuracy: 0.25, penetration: 20, explosivePower: 6, ammo: 200 },
-        { id: nextWpnId(), type: 'torpedo', name: 'Torpedo Tubes Port', arc: 'port', range: 15, reloadTurns: 8, cooldown: 0, accuracy: 0.15, penetration: 60, explosivePower: 35, ammo: 8 },
-        { id: nextWpnId(), type: 'torpedo', name: 'Torpedo Tubes Starboard', arc: 'starboard', range: 15, reloadTurns: 8, cooldown: 0, accuracy: 0.15, penetration: 60, explosivePower: 35, ammo: 8 },
-        { id: nextWpnId(), type: 'aa_gun', name: 'AA Battery', arc: 'all', range: 8, reloadTurns: 1, cooldown: 0, accuracy: 0.4, penetration: 1, explosivePower: 3, ammo: 9999 },
+        mount('main_gun', '8-inch Forward', 'forward', 28, 3, 0.18, 50, 12, 120),
+        mount('main_gun', '8-inch Aft', 'aft', 28, 3, 0.18, 50, 12, 120),
+        mount('secondary_gun', '5-inch Port', 'port', 18, 2, 0.25, 20, 6, 200),
+        mount('secondary_gun', '5-inch Starboard', 'starboard', 18, 2, 0.25, 20, 6, 200),
+        mount('torpedo', 'Torpedo Tubes Port', 'port', 15, 8, 0.15, 60, 35, 8),
+        mount('torpedo', 'Torpedo Tubes Starboard', 'starboard', 15, 8, 0.15, 60, 35, 8),
+        mount('aa_gun', 'AA Battery', 'all', 8, 1, 0.4, 1, 3, 9999),
       );
       break;
 
     case 'light_cruiser':
       weapons.push(
-        { id: nextWpnId(), type: 'main_gun', name: '6-inch Forward', arc: 'forward', range: 24, reloadTurns: 2, cooldown: 0, accuracy: 0.2, penetration: 30, explosivePower: 8, ammo: 150 },
-        { id: nextWpnId(), type: 'main_gun', name: '6-inch Aft', arc: 'aft', range: 24, reloadTurns: 2, cooldown: 0, accuracy: 0.2, penetration: 30, explosivePower: 8, ammo: 150 },
-        { id: nextWpnId(), type: 'torpedo', name: 'Torpedo Tubes Port', arc: 'port', range: 15, reloadTurns: 8, cooldown: 0, accuracy: 0.15, penetration: 60, explosivePower: 35, ammo: 8 },
-        { id: nextWpnId(), type: 'torpedo', name: 'Torpedo Tubes Starboard', arc: 'starboard', range: 15, reloadTurns: 8, cooldown: 0, accuracy: 0.15, penetration: 60, explosivePower: 35, ammo: 8 },
-        { id: nextWpnId(), type: 'aa_gun', name: 'AA Battery', arc: 'all', range: 8, reloadTurns: 1, cooldown: 0, accuracy: 0.4, penetration: 1, explosivePower: 3, ammo: 9999 },
+        mount('main_gun', '6-inch Forward', 'forward', 24, 2, 0.2, 30, 8, 150),
+        mount('main_gun', '6-inch Aft', 'aft', 24, 2, 0.2, 30, 8, 150),
+        mount('torpedo', 'Torpedo Tubes Port', 'port', 15, 8, 0.15, 60, 35, 8),
+        mount('torpedo', 'Torpedo Tubes Starboard', 'starboard', 15, 8, 0.15, 60, 35, 8),
+        mount('aa_gun', 'AA Battery', 'all', 8, 1, 0.4, 1, 3, 9999),
       );
       break;
 
     case 'destroyer':
       weapons.push(
-        { id: nextWpnId(), type: 'main_gun', name: '5-inch Forward', arc: 'forward', range: 18, reloadTurns: 2, cooldown: 0, accuracy: 0.22, penetration: 20, explosivePower: 6, ammo: 150 },
-        { id: nextWpnId(), type: 'main_gun', name: '5-inch Aft', arc: 'aft', range: 18, reloadTurns: 2, cooldown: 0, accuracy: 0.22, penetration: 20, explosivePower: 6, ammo: 150 },
-        { id: nextWpnId(), type: 'torpedo', name: 'Torpedo Tubes Port', arc: 'port', range: 12, reloadTurns: 6, cooldown: 0, accuracy: 0.18, penetration: 60, explosivePower: 35, ammo: 5 },
-        { id: nextWpnId(), type: 'torpedo', name: 'Torpedo Tubes Starboard', arc: 'starboard', range: 12, reloadTurns: 6, cooldown: 0, accuracy: 0.18, penetration: 60, explosivePower: 35, ammo: 5 },
-        { id: nextWpnId(), type: 'torpedo', name: 'Torpedo Tubes Center', arc: 'all', range: 12, reloadTurns: 6, cooldown: 0, accuracy: 0.18, penetration: 60, explosivePower: 35, ammo: 5 },
-        { id: nextWpnId(), type: 'depth_charge', name: 'Depth Charge Rack', arc: 'aft', range: 5, reloadTurns: 2, cooldown: 0, accuracy: 0.2, penetration: 30, explosivePower: 25, ammo: 30 },
-        { id: nextWpnId(), type: 'aa_gun', name: 'AA Battery', arc: 'all', range: 7, reloadTurns: 1, cooldown: 0, accuracy: 0.35, penetration: 1, explosivePower: 3, ammo: 9999 },
+        mount('main_gun', '5-inch Forward', 'forward', 18, 2, 0.22, 20, 6, 150),
+        mount('main_gun', '5-inch Aft', 'aft', 18, 2, 0.22, 20, 6, 150),
+        mount('torpedo', 'Torpedo Tubes Port', 'port', 12, 6, 0.18, 60, 35, 5),
+        mount('torpedo', 'Torpedo Tubes Starboard', 'starboard', 12, 6, 0.18, 60, 35, 5),
+        mount('torpedo', 'Torpedo Tubes Center', 'all', 12, 6, 0.18, 60, 35, 5),
+        mount('depth_charge', 'Depth Charge Rack', 'aft', 5, 2, 0.2, 30, 25, 30),
+        mount('aa_gun', 'AA Battery', 'all', 7, 1, 0.35, 1, 3, 9999),
       );
       break;
 
     case 'submarine':
       weapons.push(
-        { id: nextWpnId(), type: 'torpedo', name: 'Torpedo Tubes Forward', arc: 'forward', range: 10, reloadTurns: 10, cooldown: 0, accuracy: 0.2, penetration: 60, explosivePower: 40, ammo: 12 },
-        { id: nextWpnId(), type: 'torpedo', name: 'Torpedo Tubes Aft', arc: 'aft', range: 10, reloadTurns: 10, cooldown: 0, accuracy: 0.18, penetration: 60, explosivePower: 40, ammo: 6 },
+        mount('torpedo', 'Torpedo Tubes Forward', 'forward', 10, 10, 0.2, 60, 40, 12),
+        mount('torpedo', 'Torpedo Tubes Aft', 'aft', 10, 10, 0.18, 60, 40, 6),
       );
       break;
 
@@ -132,16 +144,12 @@ export function createDefaultWeaponMounts(shipClass: string): ShipWeaponMount[] 
     case 'oiler':
     case 'landing_ship':
     default:
-      weapons.push(
-        { id: nextWpnId(), type: 'aa_gun', name: 'AA Battery', arc: 'all', range: 6, reloadTurns: 1, cooldown: 0, accuracy: 0.25, penetration: 1, explosivePower: 2, ammo: 9999 },
-      );
+      weapons.push(mount('aa_gun', 'AA Battery', 'all', 6, 1, 0.25, 1, 2, 9999));
       break;
   }
 
   return weapons;
 }
-
-// ===== 武器开火判定 =====
 
 export function canFireNavalWeapon(params: {
   attacker: NavalShip;
@@ -153,7 +161,7 @@ export function canFireNavalWeapon(params: {
   canFire: boolean;
   reason: string;
 } {
-  const { attacker, weapon, targetContact, environment } = params;
+  const { attacker, weapon, targetContact } = params;
 
   if (weapon.ammo <= 0) {
     return { canFire: false, reason: 'Out of ammunition' };
@@ -163,7 +171,6 @@ export function canFireNavalWeapon(params: {
     return { canFire: false, reason: 'Weapon reloading' };
   }
 
-  // 检查武器对应模块
   if (weapon.moduleId) {
     const module = attacker.modules.find((m) => m.id === weapon.moduleId);
     if (module && (module.status === 'disabled' || module.status === 'destroyed')) {
@@ -171,12 +178,15 @@ export function canFireNavalWeapon(params: {
     }
   }
 
-  // 检查损伤惩罚
   if (attacker.damage.weaponPenalty >= 1) {
     return { canFire: false, reason: 'All weapons disabled' };
   }
 
-  // 检查目标侦测等级
+  const systemReadiness = getWeaponSystemReadiness(attacker, weapon.type);
+  if (systemReadiness <= 0.05) {
+    return { canFire: false, reason: `${weapon.type} system disabled by module damage` };
+  }
+
   switch (weapon.type) {
     case 'main_gun':
     case 'secondary_gun':
@@ -198,15 +208,22 @@ export function canFireNavalWeapon(params: {
 
     case 'aa_gun':
     case 'fighter':
-      // AA 可以更宽松
       if (targetContact.detectionLevel === 'none') return { canFire: false, reason: 'No contact' };
       break;
 
-    default:
+    case 'naval_bomber':
+    case 'dive_bomber':
+    case 'torpedo_bomber':
       if (targetContact.detectionLevel === 'none') return { canFire: false, reason: 'No contact' };
+      if (targetContact.detectionLevel === 'suspected') return { canFire: false, reason: 'Cannot launch air attack at suspected contact' };
+      break;
+
+    default: {
+      const _exhaustive: never = weapon.type;
+      return { canFire: false, reason: `Unhandled weapon type ${String(_exhaustive)}` };
+    }
   }
 
-  // 检查射程
   const dx = targetContact.lastKnownPosition.x - attacker.position.x;
   const dy = targetContact.lastKnownPosition.y - attacker.position.y;
   const distance = Math.sqrt(dx * dx + dy * dy);
@@ -214,11 +231,10 @@ export function canFireNavalWeapon(params: {
     return { canFire: false, reason: 'Target out of range' };
   }
 
-  // 检查射界
   if (weapon.arc !== 'all') {
     const targetAngle = (Math.atan2(dy, dx) * 180) / Math.PI;
     const relativeAngle = ((targetAngle - attacker.headingDeg) + 360) % 360;
-    const inArc = 
+    const inArc =
       (weapon.arc === 'forward' && (relativeAngle <= 45 || relativeAngle >= 315)) ||
       (weapon.arc === 'aft' && relativeAngle >= 135 && relativeAngle <= 225) ||
       (weapon.arc === 'port' && relativeAngle > 45 && relativeAngle < 135) ||

@@ -5,6 +5,7 @@
 
 import type { DetectionInput, DetectionResult, DetectionLevel } from './naval-intel-types';
 import type { NavalShip } from '../ship/ship-types';
+import { getSensorSystemReadiness } from '../ship/ship-combat-profile';
 
 // ===== 核心探测函数 =====
 
@@ -55,6 +56,7 @@ function detectVisual(
 ): DetectionResult {
   const sensor = observer.sensors;
   let range = sensor.visualRange;
+  range *= getSensorSystemReadiness(observer, 'visual');
 
   // 环境修正
   if (env.timeOfDay === 'night') range *= 0.1 + sensor.nightFightingBonus * 0.01;
@@ -71,6 +73,7 @@ function detectVisual(
 
   // 烟雾影响
   range *= Math.max(0.1, 1 - env.smoke * 0.01);
+  range *= (1 - target.stealth.surfaceSignature / 200);
 
   // 目标隐匿属性
   range *= (1 - target.stealth.surfaceSignature / 200);
@@ -121,7 +124,7 @@ function detectSurfaceRadar(
     };
   }
 
-  let range = observer.sensors.surfaceRadarRange;
+  let range = observer.sensors.surfaceRadarRange * getSensorSystemReadiness(observer, 'surface_radar');
 
   // CIC 加成
   if (observer.sensors.cicOperational) range *= 1.1;
@@ -176,7 +179,7 @@ function detectAirSearchRadar(
   }
 
   // 对空搜索雷达主要用于发现 aircraft，对水面舰效果差
-  let range = observer.sensors.airSearchRadarRange * 0.3;
+  let range = observer.sensors.airSearchRadarRange * 0.3 * getSensorSystemReadiness(observer, 'air_search_radar');
 
   if (distance > range) {
     return {
@@ -216,7 +219,7 @@ function detectSonar(
     };
   }
 
-  let range = observer.sensors.sonarRange;
+  let range = observer.sensors.sonarRange * getSensorSystemReadiness(observer, 'sonar');
 
   // 自身速度影响声呐
   const ownSpeedFactor = Math.max(0.3, 1 - observer.speedKts / 40);
@@ -261,7 +264,7 @@ function detectAircraftSearch(
   distance: number
 ): DetectionResult {
   // 航空搜索范围大但精度低
-  let range = 80;
+  let range = 80 * getSensorSystemReadiness(observer, 'aircraft_search');
 
   if (env.weather === 'rain') range *= 0.6;
   if (env.weather === 'squall') range *= 0.3;

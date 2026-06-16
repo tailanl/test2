@@ -2,13 +2,12 @@
  * AI Regression Tests - 回归测试确保关键功能正常
  */
 
-import { debugLLMKnowledgeIsolation, debugLLMContactBasedDecision } from '../ai/llm-decision-debug';
-import { validateLLMCommanderDecision } from '../ai/llm-decision-validator';
-import { buildFactionKnowledge, sanitizeKnowledgeForLLM } from '../ai/information-filter';
-import { generateSearchPlan } from '../ai/search-planner';
-import { assessThreat } from '../ai/threat-assessment';
-import { getDoctrineForPhase } from '../ai/naval-doctrine';
-import { assessIntelUncertainty } from '../ai/intel-uncertainty-model';
+import { debugLLMKnowledgeIsolation, debugLLMContactBasedDecision } from '../src/ai/llm-decision-debug';
+import { buildFactionKnowledge, sanitizeKnowledgeForLLM } from '../src/ai/information-filter';
+import { generateSearchPlan } from '../src/ai/search-planner';
+import { assessThreat } from '../src/ai/threat-assessment';
+import { getDoctrineForPhase } from '../src/ai/naval-doctrine';
+import { assessIntelUncertainty } from '../src/ai/intel-uncertainty-model';
 
 function assert(cond: boolean, name: string): void {
   if (!cond) { console.error(`❌ FAIL: ${name}`); process.exit(1); }

@@ -9,10 +9,11 @@ import { applyNavalDamage } from './game/naval/ship/ship-damage';
 import { detectNavalTarget } from './game/naval/intel/naval-visibility';
 import type { NavalShip } from './game/naval/ship/ship-types';
 
-const KEY='sk-7abe53292a3f4698af3a1475d8f1cd19', ENDPOINT='https://api.deepseek.com/v1/chat/completions';
+const KEY=process.env.DEEPSEEK_API_KEY||'', ENDPOINT='https://api.deepseek.com/v1/chat/completions';
 const MAP_W=3000, MAP_H=2000;
 
 async function ask(sys:string,usr:string):Promise<string>{
+  if(!KEY)throw new Error('DEEPSEEK_API_KEY is not configured');
   const r=await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${KEY}`},
     body:JSON.stringify({model:'deepseek-chat',messages:[{role:'system',content:sys},{role:'user',content:usr}],temperature:0.7,max_tokens:500})});
   if(!r.ok)throw new Error(`${r.status}`);

@@ -5,6 +5,7 @@
 
 import type { NavalContact } from '../intel/naval-intel-types';
 import type { NavalAIReport } from '../ai/naval-ai-types';
+import type { FleetCombatProfile, ShipCombatProfile } from '../ship/ship-combat-profile';
 
 export type FactionId = 'player' | 'enemy';
 
@@ -19,6 +20,19 @@ export interface KnownOwnFleet {
   ammoState: 'good' | 'limited' | 'critical';
   aircraftState?: string;
   currentMission?: string;
+  shipCount?: number;
+  damagedShipCount?: number;
+  carrierAir?: {
+    readyAircraft: number;
+    fighters: number;
+    diveBombers: number;
+    torpedoBombers: number;
+    maxSearchAircraft: number;
+    maxCapFighters: number;
+    maxStrikeAircraft: number;
+    deckCycleState?: string;
+  };
+  combatProfile?: FleetCombatProfile;
   ships: KnownOwnShip[];
 }
 
@@ -34,7 +48,13 @@ export interface KnownOwnShip {
   fire: number;
   hullIntegrity: number;
   aircraft?: string;
+  readyAircraft?: number;
+  fighters?: number;
+  diveBombers?: number;
+  torpedoBombers?: number;
+  deckCycleState?: string;
   sensors: string;
+  combatProfile?: ShipCombatProfile;
 }
 
 export interface KnownBase {

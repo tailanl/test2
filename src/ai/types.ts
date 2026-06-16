@@ -4,7 +4,7 @@
 
 // ===== Provider 配置 =====
 
-export type AIProviderKind = 'none' | 'rule_based' | 'deepseek';
+export type AIProviderKind = 'none' | 'rule_based' | 'deepseek' | 'ollama';
 
 export interface AIProviderConfig {
   kind: AIProviderKind;

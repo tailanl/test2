@@ -1,74 +1,114 @@
 /**
- * LLM Decision Executor - 执行 validator 接受的动作
- * LLM 只能提出 action，不能直接改 state
+ * LLM Decision Executor - applies validator-accepted actions through store calls.
  */
 
 import type { LLMDecisionAction } from './llm-decision-types';
 
+export interface AIActionExecutionResult {
+  action: LLMDecisionAction;
+  success: boolean;
+  result?: string;
+  reason?: string;
+  affectedFleetIds: string[];
+  affectedContactIds: string[];
+  logMessages: string[];
+}
+
+export interface AIExecutionReport {
+  turn: number;
+  executed: AIActionExecutionResult[];
+  failed: AIActionExecutionResult[];
+  logMessages: string[];
+}
+
+export interface LLMDecisionStoreCalls {
+  assignMission: (action: LLMDecisionAction) => string;
+  moveFleet: (action: LLMDecisionAction) => string;
+  launchSearch: (action: LLMDecisionAction) => string;
+  launchCap: (action: LLMDecisionAction) => string;
+  launchStrike: (action: LLMDecisionAction) => string;
+  withdrawFleet: (action: LLMDecisionAction) => string;
+  holdPosition: (action: LLMDecisionAction) => string;
+  repairFleet: (action: LLMDecisionAction) => string;
+  protectBase: (action: LLMDecisionAction) => string;
+  protectSupplyLine: (action: LLMDecisionAction) => string;
+  shadowContact: (action: LLMDecisionAction) => string;
+  interceptContact: (action: LLMDecisionAction) => string;
+  supportLanding: (action: LLMDecisionAction) => string;
+}
+
 export function executeLLMDecisionActions(params: {
   actions: LLMDecisionAction[];
-  storeCalls: {
-    assignMission: (fleetId: string, mission: string) => void;
-    moveFleet: (fleetId: string, x: number, y: number) => void;
-    launchSearch: (fleetId: string, heading: number) => void;
-    launchCap: (fleetId: string) => void;
-    launchStrike: (fleetId: string, contactId: string) => void;
-    withdrawFleet: (fleetId: string) => void;
-    holdPosition: (fleetId: string) => void;
-    repairFleet: (fleetId: string, baseId: string) => void;
-    protectBase: (fleetId: string, baseId: string) => void;
-    protectSupplyLine: (fleetId: string, lineId: string) => void;
-  };
+  storeCalls: LLMDecisionStoreCalls;
   currentTurn: number;
-}): { executed: Array<{ action: LLMDecisionAction; result: string }>; failed: Array<{ action: LLMDecisionAction; reason: string }> } {
-  const { actions, storeCalls } = params;
-  const executed: Array<{ action: LLMDecisionAction; result: string }> = [];
-  const failed: Array<{ action: LLMDecisionAction; reason: string }> = [];
+}): AIExecutionReport {
+  const { actions, storeCalls, currentTurn } = params;
+  const executed: AIActionExecutionResult[] = [];
+  const failed: AIActionExecutionResult[] = [];
+  const logMessages: string[] = [];
 
   for (const action of actions) {
     try {
-      switch (action.type) {
-        case 'assign_mission':
-          if (action.fleetId) { storeCalls.assignMission(action.fleetId, action.reason); executed.push({ action, result: 'Mission assigned' }); }
-          else failed.push({ action, reason: 'Missing fleetId' });
-          break;
-        case 'move_fleet':
-          if (action.fleetId && action.targetPosition) {
-            storeCalls.moveFleet(action.fleetId, action.targetPosition.x, action.targetPosition.y);
-            executed.push({ action, result: `Fleet moving to (${action.targetPosition.x},${action.targetPosition.y})` });
-          } else failed.push({ action, reason: 'Missing position' });
-          break;
-        case 'launch_search':
-          if (action.fleetId) { storeCalls.launchSearch(action.fleetId, 315); executed.push({ action, result: 'Search launched' }); }
-          else failed.push({ action, reason: 'Missing fleetId' });
-          break;
-        case 'launch_cap':
-          if (action.fleetId) { storeCalls.launchCap(action.fleetId); executed.push({ action, result: 'CAP launched' }); }
-          else failed.push({ action, reason: 'Missing fleetId' });
-          break;
-        case 'launch_strike':
-          if (action.fleetId && action.contactId) { storeCalls.launchStrike(action.fleetId, action.contactId); executed.push({ action, result: 'Strike launched' }); }
-          else failed.push({ action, reason: 'Missing fleetId or contactId' });
-          break;
-        case 'withdraw_fleet':
-          if (action.fleetId) { storeCalls.withdrawFleet(action.fleetId); executed.push({ action, result: 'Fleet withdrawing' }); }
-          else failed.push({ action, reason: 'Missing fleetId' });
-          break;
-        case 'hold_position':
-          if (action.fleetId) { storeCalls.holdPosition(action.fleetId); executed.push({ action, result: 'Holding' }); }
-          else failed.push({ action, reason: 'Missing fleetId' });
-          break;
-        case 'repair_fleet':
-          if (action.fleetId && action.baseId) { storeCalls.repairFleet(action.fleetId, action.baseId); executed.push({ action, result: 'Repair ordered' }); }
-          else failed.push({ action, reason: 'Missing baseId' });
-          break;
-        default:
-          failed.push({ action, reason: `Action type '${action.type}' not implemented` });
-      }
-    } catch (e: any) {
-      failed.push({ action, reason: String(e) });
+      const result = executeOne(action, storeCalls);
+      const entry = toResult(action, true, result);
+      executed.push(entry);
+      logMessages.push(...entry.logMessages);
+    } catch (error) {
+      const entry = toResult(action, false, undefined, error instanceof Error ? error.message : String(error));
+      failed.push(entry);
+      logMessages.push(...entry.logMessages);
     }
   }
 
-  return { executed, failed };
+  return { turn: currentTurn, executed, failed, logMessages };
+}
+
+function executeOne(action: LLMDecisionAction, storeCalls: LLMDecisionStoreCalls): string {
+  switch (action.type) {
+    case 'assign_mission':
+      return storeCalls.assignMission(action);
+    case 'move_fleet':
+      return storeCalls.moveFleet(action);
+    case 'launch_search':
+      return storeCalls.launchSearch(action);
+    case 'launch_cap':
+      return storeCalls.launchCap(action);
+    case 'launch_strike':
+      return storeCalls.launchStrike(action);
+    case 'withdraw_fleet':
+      return storeCalls.withdrawFleet(action);
+    case 'hold_position':
+      return storeCalls.holdPosition(action);
+    case 'repair_fleet':
+      return storeCalls.repairFleet(action);
+    case 'protect_base':
+      return storeCalls.protectBase(action);
+    case 'protect_supply_line':
+      return storeCalls.protectSupplyLine(action);
+    case 'shadow_contact':
+      return storeCalls.shadowContact(action);
+    case 'intercept_contact':
+      return storeCalls.interceptContact(action);
+    case 'support_landing':
+      return storeCalls.supportLanding(action);
+    default:
+      return assertNever(action.type);
+  }
+}
+
+function toResult(action: LLMDecisionAction, success: boolean, result?: string, reason?: string): AIActionExecutionResult {
+  const message = success ? result || `${action.type} executed` : reason || `${action.type} failed`;
+  return {
+    action,
+    success,
+    result,
+    reason,
+    affectedFleetIds: action.fleetId ? [action.fleetId] : [],
+    affectedContactIds: action.contactId ? [action.contactId] : [],
+    logMessages: [`${success ? 'EXECUTED' : 'FAILED'} ${action.type}: ${message}`],
+  };
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled LLM action type: ${String(value)}`);
 }

@@ -138,7 +138,7 @@ export function createSearchMission(params: {
   aircraftCount: number;
 }): { mission: NavalAirMission; airGroup: CarrierAirGroup } {
   const newAirGroup = { ...params.airGroup };
-  const planes = Math.min(params.aircraftCount, newAirGroup.diveBombers + newAirGroup.fighters);
+  const planes = Math.min(params.aircraftCount, newAirGroup.readyAircraft, newAirGroup.diveBombers + newAirGroup.fighters);
 
   if (planes <= 0 || newAirGroup.deckCycleState === 'deck_damaged') {
     throw new Error('Cannot launch: no aircraft or deck damaged');
@@ -204,7 +204,7 @@ export function createCAPMission(params: {
   fighterCount: number;
 }): { mission: NavalAirMission; airGroup: CarrierAirGroup } {
   const newAirGroup = { ...params.airGroup };
-  const planes = Math.min(params.fighterCount, newAirGroup.fighters);
+  const planes = Math.min(params.fighterCount, newAirGroup.readyAircraft, newAirGroup.fighters);
 
   if (planes <= 0 || newAirGroup.deckCycleState === 'deck_damaged') {
     throw new Error('Cannot launch CAP: no fighters or deck damaged');

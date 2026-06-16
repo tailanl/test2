@@ -23,6 +23,36 @@ export interface LLMDecisionContext {
     readiness: string; damageSummary: string;
     fuelState: string; ammoState: string;
     aircraftState?: string; currentMission?: string;
+    shipCount?: number; damagedShipCount?: number;
+    carrierAir?: {
+      readyAircraft: number;
+      fighters: number;
+      diveBombers: number;
+      torpedoBombers: number;
+      maxSearchAircraft: number;
+      maxCapFighters: number;
+      maxStrikeAircraft: number;
+      deckCycleState?: string;
+    };
+    combatProfile?: {
+      readiness: number;
+      firepower: {
+        antiSurface: number;
+        antiAir: number;
+        antiSubmarine: number;
+        torpedo: number;
+        aviationStrike: number;
+      };
+      modules: {
+        mobility: number;
+        sensors: number;
+        command: number;
+        firepower: number;
+        aviation: number;
+        damageControl: number;
+        hull: number;
+      };
+    };
   }>;
 
   knownContacts: Array<{
@@ -36,6 +66,7 @@ export interface LLMDecisionContext {
 
   knownBases: Array<{
     baseId: string; name: string; owner: string; type: string;
+    position?: { x: number; y: number };
     level?: number; knownDamage?: number; supplyKnown?: string;
   }>;
 
@@ -55,6 +86,7 @@ export interface LLMDecisionContext {
   };
 
   legalActionHints: string[];
+  decisionFramework?: LLMDecisionFramework;
   visualAssessment?: {
     assessment: string;
     bearingSummary: string;
@@ -62,6 +94,33 @@ export interface LLMDecisionContext {
     recommendation: string;
     model: string;
   };
+}
+
+export interface LLMDecisionFramework {
+  mission: {
+    primaryTask: string;
+    secondaryTasks: string[];
+    constraints: string[];
+    riskTolerance: 'low' | 'medium' | 'high';
+  };
+  situation: {
+    enemy: string;
+    friendly: string;
+    self: string;
+    battlefield: string;
+  };
+  availableOptions: LLMAvailableDecisionOption[];
+}
+
+export interface LLMAvailableDecisionOption {
+  actionType: LLMDecisionActionType;
+  fleetId?: string;
+  targetId?: string;
+  method: string;
+  maxQuantity?: number;
+  estimatedSuccess: 'low' | 'medium' | 'high';
+  constraints: string[];
+  reason: string;
 }
 
 // ========== LLMCommanderDecision ==========
@@ -77,11 +136,51 @@ export interface LLMDecisionAction {
   baseId?: string;
   supplyLineId?: string;
   targetPosition?: { x: number; y: number };
+  mission?: string;
+  headingDeg?: number;
+  speedKts?: number;
+  aircraftCount?: number;
+  durationTurns?: number;
+  searchArea?: { x: number; y: number; radius?: number };
+  searchArcDeg?: { centerDeg: number; widthDeg: number; range?: number };
+  successEstimate?: 'low' | 'medium' | 'high';
+  expectedEffect?: string;
+  resourceCommitment?: string;
   priority: number;
   reason: string;
 }
 
 export interface LLMCommanderDecision {
+  situationAssessment?: {
+    enemy: string;
+    friendly: string;
+    self: string;
+    battlefield: string;
+  };
+  missionAnalysis?: {
+    primaryTask: string;
+    constraints: string[];
+    desiredEffect: string;
+    riskTolerance: 'low' | 'medium' | 'high';
+  };
+  availableDecisionReview?: Array<{
+    actionType: string;
+    feasible: boolean;
+    method: string;
+    quantity?: number;
+    constraints: string[];
+    estimatedSuccess: 'low' | 'medium' | 'high';
+    reason: string;
+  }>;
+  courseOfActionAnalysis?: Array<{
+    option: string;
+    actionTypes: string[];
+    successEstimate: 'low' | 'medium' | 'high';
+    risk: 'low' | 'medium' | 'high';
+    resourceUse: string;
+    reason: string;
+  }>;
+  selectedDecisionRationale?: string;
   assessment: string;
   intent: 'search'|'shadow'|'intercept'|'strike'|'withdraw'|'protect'|'raid'|'support_landing'|'repair'|'hold';
   confidence: 'low'|'medium'|'high';

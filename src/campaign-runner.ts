@@ -15,10 +15,11 @@ import type { NavalShip } from './game/naval/ship/ship-types';
 import type { StrategicFleet } from './game/naval/naval-strategic-types';
 import type { NavalAircraft } from './game/naval/air/aircraft-types';
 
-const KEY = 'sk-7abe53292a3f4698af3a1475d8f1cd19';
+const KEY = process.env.DEEPSEEK_API_KEY || '';
 const URL = 'https://api.deepseek.com/v1/chat/completions';
 
 async function ask(sys: string, usr: string): Promise<string> {
+  if (!KEY) throw new Error('DEEPSEEK_API_KEY is not configured');
   const r = await fetch(URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
     body: JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }], temperature: 0.8, max_tokens: 400 }) });
   if (!r.ok) throw new Error(`${r.status}`);

@@ -69,7 +69,7 @@ export function debugLLMContactBasedDecision(): {
   const context: LLMDecisionContext = {
     faction: 'player', turn: 1,
     strategicSituation: { posture: 'search', currentObjectives: ['locate'], riskTolerance: 'medium' },
-    ownForces: [{ fleetId: 'p1', name: 'TF16', type: 'carrier_task_force', position: { x: 0, y: 0 }, readiness: 'ready', damageSummary: 'intact', fuelState: 'good', ammoState: 'good' }],
+    ownForces: [{ fleetId: 'p1', name: 'TF16', type: 'carrier_task_force', position: { x: 0, y: 0 }, readiness: 'ready', damageSummary: 'intact', fuelState: 'good', ammoState: 'good', aircraftState: 'ready' }],
     knownContacts: [
       { contactId: 'c1', contactType: 'surface_ship', detectionLevel: 'suspected', confidence: 'low', estimatedClass: 'unknown', lastKnownPosition: { x: 100, y: 100 }, uncertaintyRadius: 30, lastDetectedTurn: 1, detectedBy: ['visual'] },
       { contactId: 'c2', contactType: 'surface_ship', detectionLevel: 'classified', confidence: 'high', estimatedClass: 'battleship', lastKnownPosition: { x: 200, y: 200 }, uncertaintyRadius: 5, lastDetectedTurn: 1, detectedBy: ['visual'] },
@@ -81,7 +81,32 @@ export function debugLLMContactBasedDecision(): {
 
   const knowledge: FactionKnowledgeState = {
     faction: 'player', turn: 1,
-    knownOwnFleets: [], knownOwnShips: [], knownContacts: [],
+    knownOwnFleets: [{
+      fleetId: 'p1',
+      name: 'TF16',
+      type: 'carrier_task_force',
+      position: { x: 0, y: 0 },
+      readiness: 'ready',
+      damageSummary: 'intact',
+      fuelState: 'good',
+      ammoState: 'good',
+      aircraftState: 'ready',
+      ships: [{
+        shipId: 'cv1',
+        name: 'CV Test',
+        shipClass: 'fleet_carrier',
+        position: { x: 0, y: 0 },
+        headingDeg: 0,
+        speedKts: 20,
+        damageStatus: 'combat_effective',
+        flooding: 0,
+        fire: 0,
+        hullIntegrity: 100,
+        aircraft: 'F12/DB12/TB8',
+        sensors: 'RDR:ON SON:OFF',
+      }],
+    }],
+    knownOwnShips: [], knownContacts: [],
     knownBases: [], knownSupplyLines: [], knownAirMissions: [],
     recentReports: [], recentBattleEvents: [], assumptions: [],
   };

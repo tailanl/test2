@@ -18,9 +18,9 @@ export interface GLMProviderConfig {
 export const GLM_DEFAULTS = {
   endpoint: 'https://api.z.ai/api/paas/v4/chat/completions',
   flashModel: 'glm-4.6v-flashx' as GLMModel,
-  highQualityModel: 'glm-4.6v' as GLMModel,
+  highQualityModel: 'glm-4.6v-flashx' as GLMModel,
   fallbackModel: 'glm-4.6v-flash' as GLMModel,
-  strategy: 'critical_events' as GLMCallStrategy,
+  strategy: 'disabled' as GLMCallStrategy,
   temperature: 0.6,
   maxTokens: 400,
 };

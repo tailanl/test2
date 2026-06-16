@@ -11,6 +11,7 @@ import type { PacificBase } from '../game/naval/campaign/campaign-types';
 import type { SupplyLine } from '../game/naval/campaign/campaign-types';
 import type { PacificWarPhaseId } from '../game/naval/campaign/campaign-types';
 import type { LLMDecisionContext } from './llm-decision-types';
+import { getFleetCombatProfile, getShipCombatProfile } from '../game/naval/ship/ship-combat-profile';
 
 // ========== buildFactionKnowledge ==========
 
@@ -34,29 +35,50 @@ export function buildFactionKnowledge(params: {
   const isOwn = (f: StrategicFleet) => (faction === 'player' && f.faction === 'player') || (faction === 'enemy' && f.faction === 'enemy');
   const ownFleets = (faction === 'player' ? truth.playerFleets : truth.enemyFleets);
 
-  const knownOwnFleets = ownFleets.map(f => ({
-    fleetId: f.id, name: f.name, type: f.type,
-    position: { x: f.position.globalX, y: f.position.globalY },
-    readiness: 'ready', damageSummary: f.ships.filter(s => s.damage.status !== 'combat_effective').length > 0 ? 'damaged' : 'intact',
-    fuelState: f.fuelState, ammoState: f.ammoState, aircraftState: f.airGroupState,
-    currentMission: f.mission,
-    ships: f.ships.map(s => ({
-      shipId: s.id, name: s.name, shipClass: s.shipClass,
-      position: { x: s.position.x, y: s.position.y },
-      headingDeg: s.headingDeg, speedKts: s.speedKts,
-      damageStatus: s.damage.status, flooding: s.damage.flooding, fire: s.damage.fire, hullIntegrity: s.damage.hullIntegrity,
-      aircraft: s.aircraft ? `F${s.aircraft.fighters}/DB${s.aircraft.diveBombers}/TB${s.aircraft.torpedoBombers}` : undefined,
-      sensors: `RDR:${s.sensors.radarOperational ? 'ON' : 'OFF'} SON:${s.sensors.sonarOperational ? 'ON' : 'OFF'}`,
-    })),
-  }));
+  const knownOwnFleets = ownFleets.map(f => {
+    const carrierAir = summarizeCarrierAir(f);
+    const combatProfile = getFleetCombatProfile(f);
+    return {
+      fleetId: f.id, name: f.name, type: f.type,
+      position: { x: f.position.globalX, y: f.position.globalY },
+      readiness: determineFleetReadiness(f),
+      damageSummary: summarizeDamage(f),
+      fuelState: f.fuelState, ammoState: f.ammoState, aircraftState: f.airGroupState,
+      currentMission: f.mission,
+      shipCount: f.ships.length,
+      damagedShipCount: f.ships.filter(s => s.damage.status !== 'combat_effective').length,
+      carrierAir,
+      combatProfile,
+      ships: f.ships.map(s => ({
+        shipId: s.id, name: s.name, shipClass: s.shipClass,
+        position: { x: s.position.x, y: s.position.y },
+        headingDeg: s.headingDeg, speedKts: s.speedKts,
+        damageStatus: s.damage.status, flooding: s.damage.flooding, fire: s.damage.fire, hullIntegrity: s.damage.hullIntegrity,
+        aircraft: s.aircraft ? `F${s.aircraft.fighters}/DB${s.aircraft.diveBombers}/TB${s.aircraft.torpedoBombers}/READY${s.aircraft.readyAircraft}` : undefined,
+        readyAircraft: s.aircraft?.readyAircraft,
+        fighters: s.aircraft?.fighters,
+        diveBombers: s.aircraft?.diveBombers,
+        torpedoBombers: s.aircraft?.torpedoBombers,
+        deckCycleState: s.aircraft?.deckCycleState,
+        sensors: `RDR:${s.sensors.radarOperational ? 'ON' : 'OFF'} SON:${s.sensors.sonarOperational ? 'ON' : 'OFF'}`,
+        combatProfile: getShipCombatProfile(s),
+      })),
+    };
+  });
 
   const knownOwnShips = ownFleets.flatMap(f => f.ships).map(s => ({
     shipId: s.id, name: s.name, shipClass: s.shipClass,
     position: { x: s.position.x, y: s.position.y },
     headingDeg: s.headingDeg, speedKts: s.speedKts,
     damageStatus: s.damage.status, flooding: s.damage.flooding, fire: s.damage.fire, hullIntegrity: s.damage.hullIntegrity,
-    aircraft: s.aircraft ? `F${s.aircraft.fighters}/DB${s.aircraft.diveBombers}/TB${s.aircraft.torpedoBombers}` : undefined,
+    aircraft: s.aircraft ? `F${s.aircraft.fighters}/DB${s.aircraft.diveBombers}/TB${s.aircraft.torpedoBombers}/READY${s.aircraft.readyAircraft}` : undefined,
+    readyAircraft: s.aircraft?.readyAircraft,
+    fighters: s.aircraft?.fighters,
+    diveBombers: s.aircraft?.diveBombers,
+    torpedoBombers: s.aircraft?.torpedoBombers,
+    deckCycleState: s.aircraft?.deckCycleState,
     sensors: `RDR:${s.sensors.radarOperational ? 'ON' : 'OFF'}`,
+    combatProfile: getShipCombatProfile(s),
   }));
 
   // Contacts: ONLY from intel, NEVER from real enemy fleets
@@ -64,7 +86,7 @@ export function buildFactionKnowledge(params: {
 
   const knownBases = truth.allBases.filter(b => isOwnFaction(b.owner, faction)).map(b => ({
     baseId: b.id, name: b.name, owner: b.owner, type: b.type,
-    position: { x: 0, y: 0 }, level: b.level, knownDamage: b.damage,
+    position: { x: (b as any).x ?? 0, y: (b as any).y ?? 0 }, level: b.level, knownDamage: b.damage,
     supplyKnown: b.isolated ? 'isolated' : 'normal',
   }));
 
@@ -105,6 +127,14 @@ export function sanitizeKnowledgeForLLM(knowledge: FactionKnowledgeState, phase?
       fleetId: f.fleetId, name: f.name, type: f.type,
       position: f.position, readiness: f.readiness, damageSummary: f.damageSummary,
       fuelState: f.fuelState, ammoState: f.ammoState, aircraftState: f.aircraftState, currentMission: f.currentMission,
+      shipCount: f.shipCount,
+      damagedShipCount: f.damagedShipCount,
+      carrierAir: f.carrierAir,
+      combatProfile: f.combatProfile ? {
+        readiness: f.combatProfile.readiness,
+        firepower: f.combatProfile.firepower,
+        modules: f.combatProfile.modules,
+      } : undefined,
     })),
     knownContacts: knowledge.knownContacts.map(c => ({
       contactId: c.id, contactType: c.contactType,
@@ -114,7 +144,7 @@ export function sanitizeKnowledgeForLLM(knowledge: FactionKnowledgeState, phase?
       lastDetectedTurn: c.lastDetectedTurn, detectedBy: c.detectedBy.map(d => d.sensorType),
     })),
     knownBases: knowledge.knownBases.map(b => ({
-      baseId: b.baseId, name: b.name, owner: b.owner, type: b.type,
+      baseId: b.baseId, name: b.name, owner: b.owner, type: b.type, position: b.position,
       level: b.level, knownDamage: b.knownDamage, supplyKnown: b.supplyKnown,
     })),
     knownSupplyLines: knowledge.knownSupplyLines.map(s => ({
@@ -131,6 +161,46 @@ export function sanitizeKnowledgeForLLM(knowledge: FactionKnowledgeState, phase?
     },
     legalActionHints: legalHints,
   };
+}
+
+function summarizeCarrierAir(fleet: StrategicFleet) {
+  const totals = fleet.ships.reduce((acc, ship) => {
+    if (!ship.aircraft || ship.aircraft.deckCycleState === 'deck_damaged') return acc;
+    acc.readyAircraft += ship.aircraft.readyAircraft;
+    acc.fighters += ship.aircraft.fighters;
+    acc.diveBombers += ship.aircraft.diveBombers;
+    acc.torpedoBombers += ship.aircraft.torpedoBombers;
+    acc.deckCycleState = acc.deckCycleState || ship.aircraft.deckCycleState;
+    return acc;
+  }, {
+    readyAircraft: 0,
+    fighters: 0,
+    diveBombers: 0,
+    torpedoBombers: 0,
+    deckCycleState: undefined as string | undefined,
+  });
+
+  const strikeAircraft = totals.diveBombers + totals.torpedoBombers;
+  return {
+    ...totals,
+    maxSearchAircraft: Math.min(totals.readyAircraft, totals.fighters + totals.diveBombers),
+    maxCapFighters: Math.min(totals.readyAircraft, totals.fighters),
+    maxStrikeAircraft: Math.min(totals.readyAircraft, strikeAircraft),
+  };
+}
+
+function determineFleetReadiness(fleet: StrategicFleet): string {
+  if ((fleet as any).repairStatus === 'repairing') return 'repairing';
+  if (fleet.fuelState === 'critical' || fleet.ammoState === 'critical') return 'exhausted';
+  if (fleet.fuelState === 'limited' || fleet.ammoState === 'limited') return 'limited';
+  if (fleet.ships.some(s => s.damage.status === 'sinking' || s.damage.status === 'sunk' || s.damage.hullIntegrity < 35)) return 'limited';
+  return 'ready';
+}
+
+function summarizeDamage(fleet: StrategicFleet): string {
+  if (fleet.ships.some(s => s.damage.status === 'sinking' || s.damage.status === 'sunk' || s.damage.hullIntegrity < 30)) return 'severe';
+  if (fleet.ships.some(s => s.damage.status !== 'combat_effective')) return 'damaged';
+  return 'intact';
 }
 
 function determinePosture(knowledge: FactionKnowledgeState): LLMDecisionContext['strategicSituation']['posture'] {
