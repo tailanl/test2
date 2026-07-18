@@ -30,6 +30,12 @@ export type HumanSpecialOrder =
       template: 'search_screen' | 'carrier_strike' | 'withdraw_preserve' | 'surface_intercept' | 'hold_defense';
     }
   | {
+      type: 'assign_objective';
+      fleetIds: string[];
+      objective: 'annihilate_enemy' | 'seek_decisive_battle' | 'destroy_enemy_carriers';
+      reason: string;
+    }
+  | {
       type: 'fleet_message';
       fromFleetId: string;
       toFleetId: string;
@@ -39,6 +45,7 @@ export type HumanSpecialOrder =
 type SplitFleetOrder = Extract<HumanSpecialOrder, { type: 'split_fleet' }>;
 type DirectShipControlOrder = Extract<HumanSpecialOrder, { type: 'direct_ship_control' }>;
 type FleetMessageOrder = Extract<HumanSpecialOrder, { type: 'fleet_message' }>;
+type ObjectiveOrder = Extract<HumanSpecialOrder, { type: 'assign_objective' }>;
 
 export interface HumanCommandInterpretation {
   interpretationLevel: HumanCommandInterpretationLevel;
@@ -86,6 +93,7 @@ export function interpretHumanNavalCommand(params: {
   contacts: NavalContact[];
   facilities: Array<{ id: string; faction?: string; owner?: string; type?: string; x?: number; y?: number; name?: string }>;
   currentTurn: number;
+  allowAnyFaction?: boolean;
 }): HumanCommandInterpretation {
   const text = params.text.trim();
   const lower = text.toLowerCase();
@@ -93,7 +101,9 @@ export function interpretHumanNavalCommand(params: {
   const errors: string[] = [];
   const actions: LLMDecisionAction[] = [];
   const specialOrders: HumanSpecialOrder[] = [];
-  const selectedFleets = params.fleets.filter((fleet) => params.fleetIds.includes(fleet.id) && fleet.faction === 'player');
+  const selectedFleets = params.fleets.filter((fleet) =>
+    params.fleetIds.includes(fleet.id) && (params.allowAnyFaction || fleet.faction === 'player')
+  );
 
   if (!text) {
     return {
@@ -120,6 +130,20 @@ export function interpretHumanNavalCommand(params: {
   const nearestFriendlyBase = selectedFleets[0]
     ? findNearestFriendlyBase(params.facilities, selectedFleets[0])
     : undefined;
+
+  const objectiveOrder = tryBuildObjectiveOrder({ text, lower, selectedFleets });
+  if (objectiveOrder) {
+    specialOrders.push(objectiveOrder);
+    return {
+      interpretationLevel: 'strategic_template',
+      actions,
+      specialOrders,
+      requiresConfirmation: false,
+      warnings,
+      errors,
+      summary: `Assigned objective ${objectiveOrder.objective} to ${objectiveOrder.fleetIds.length} fleet(s).`,
+    };
+  }
 
   const splitOrder = tryBuildSplitOrder({ text, lower, selectedFleets });
   if (splitOrder) {
@@ -184,12 +208,119 @@ export function interpretHumanNavalCommand(params: {
       reason: text,
     };
 
+    if (/prepare strike|ready strike|deck cycle|rearm strike/.test(lower)) {
+      actions.push({
+        ...baseAction,
+        type: 'prepare_strike',
+        aircraftCount: parseAircraftCount(text),
+        durationTurns: parseDuration(text) ?? 1,
+      });
+      continue;
+    }
+
+    if (/recover aircraft|recover planes|clear deck|recovery cycle/.test(lower)) {
+      actions.push({
+        ...baseAction,
+        type: 'recover_aircraft',
+        durationTurns: parseDuration(text) ?? 1,
+      });
+      continue;
+    }
+
+    if (/vector cap|fighter direction|direct fighters|vector fighters/.test(lower)) {
+      actions.push({
+        ...baseAction,
+        type: 'vector_cap',
+        contactId: targetContact?.id,
+        targetPosition: coordinate ?? targetContact?.lastKnownPosition ?? projectFromFleet(fleet, directionHeading ?? fleet.ships[0]?.headingDeg ?? 270, parseDistance(text) ?? 120),
+        durationTurns: parseDuration(text) ?? 1,
+      });
+      continue;
+    }
+
     if (/cap|combat air patrol|防空|空中巡逻/.test(lower)) {
       actions.push({
         ...baseAction,
         type: 'launch_cap',
         targetPosition: coordinate ?? { x: fleet.position.globalX, y: fleet.position.globalY },
         aircraftCount: parseAircraftCount(text) ?? 4,
+        durationTurns: parseDuration(text) ?? 2,
+      });
+      continue;
+    }
+
+    if (/lay smoke|smoke screen|make smoke|screen with smoke/.test(lower)) {
+      actions.push({
+        ...baseAction,
+        type: 'lay_smoke',
+        durationTurns: parseDuration(text) ?? 1,
+      });
+      continue;
+    }
+
+    if (/radio silence|emcon|silent running|hold transmissions/.test(lower)) {
+      actions.push({
+        ...baseAction,
+        type: 'radio_silence',
+        durationTurns: parseDuration(text) ?? 2,
+      });
+      continue;
+    }
+
+    if (/surface engage|surface action|gun action|engage surface|close to gun range/.test(lower)) {
+      if (!targetContact) {
+        errors.push('Surface engagement command needs a known contact.');
+        continue;
+      }
+      actions.push({
+        ...baseAction,
+        type: 'surface_engage',
+        contactId: targetContact.id,
+        durationTurns: parseDuration(text) ?? 1,
+      });
+      continue;
+    }
+
+    if (/torpedo attack|launch torpedoes|torpedo run|night torpedo/.test(lower)) {
+      if (!targetContact) {
+        errors.push('Torpedo attack command needs a known contact.');
+        continue;
+      }
+      actions.push({
+        ...baseAction,
+        type: 'launch_torpedo_attack',
+        contactId: targetContact.id,
+        durationTurns: parseDuration(text) ?? 1,
+      });
+      continue;
+    }
+
+    if (/shore bombard|bombard airfield|bombard base|bombard island|naval bombardment/.test(lower)) {
+      actions.push({
+        ...baseAction,
+        type: 'bombard_airfield',
+        contactId: targetContact?.id,
+        targetPosition: coordinate ?? targetContact?.lastKnownPosition,
+        durationTurns: parseDuration(text) ?? 1,
+      });
+      continue;
+    }
+
+    if (/replenish at sea|underway replenishment|replenish|refuel at sea/.test(lower)) {
+      actions.push({
+        ...baseAction,
+        type: 'replenish_at_sea',
+        durationTurns: parseDuration(text) ?? 2,
+      });
+      continue;
+    }
+
+    if (/transport run|convoy run|troop run|supply run/.test(lower)) {
+      actions.push({
+        ...baseAction,
+        type: 'run_transport',
+        targetPosition: coordinate ?? nearestFriendlyBase,
+        baseId: coordinate ? undefined : nearestFriendlyBase?.baseId,
         durationTurns: parseDuration(text) ?? 2,
       });
       continue;
@@ -270,7 +401,13 @@ export function interpretHumanNavalCommand(params: {
     }
   }
 
-  const highRisk = actions.some((action) => action.type === 'launch_strike' || action.type === 'intercept_contact');
+  const highRisk = actions.some((action) =>
+    action.type === 'launch_strike' ||
+    action.type === 'intercept_contact' ||
+    action.type === 'surface_engage' ||
+    action.type === 'launch_torpedo_attack' ||
+    action.type === 'bombard_airfield'
+  );
   return {
     interpretationLevel: highRisk ? 'fleet_operational' : 'fleet_tactical',
     actions,
@@ -302,6 +439,29 @@ function tryBuildSplitOrder(params: {
     sourceFleetId: fleet.id,
     shipIds: fallback,
     newFleetName: 'Detached Element',
+  };
+}
+
+function tryBuildObjectiveOrder(params: {
+  text: string;
+  lower: string;
+  selectedFleets: StrategicFleet[];
+}): ObjectiveOrder | undefined {
+  if (!/(annihilate|destroy|decisive battle|seek battle|seek decisive|歼灭|消灭|摧毁|决战|寻求决战)/i.test(params.text)) {
+    return undefined;
+  }
+  const fleetIds = params.selectedFleets.map((fleet) => fleet.id);
+  if (fleetIds.length === 0) return undefined;
+  const objective = /(carrier|cv|航母|航空母舰)/i.test(params.text)
+    ? 'destroy_enemy_carriers'
+    : /(decisive battle|seek battle|seek decisive|决战|寻求决战)/i.test(params.text)
+      ? 'seek_decisive_battle'
+      : 'annihilate_enemy';
+  return {
+    type: 'assign_objective',
+    fleetIds,
+    objective,
+    reason: params.text,
   };
 }
 

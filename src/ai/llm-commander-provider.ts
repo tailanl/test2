@@ -7,6 +7,9 @@ import { buildDecisionPrompt } from './llm-decision-schema';
 import { getAPIKey, getCommanderLLMProvider, getOllamaBaseUrl, getOllamaModel } from './api-key';
 import { createTraceId, type LLMDecisionProviderResult, type LLMOutputTrace } from './llm-output-trace';
 
+type RecommendedOrder = NonNullable<LLMDecisionContext['commanderBrief']>['taskCards'][number]['recommendedOrders'][number];
+type RecommendedOrderFields = RecommendedOrder['fields'];
+
 function parseLLMDecisionWithError(resp: string, context: LLMDecisionContext): { decision: LLMCommanderDecision | null; error?: string } {
   try {
     const candidate = extractJSONCandidate(resp);
@@ -50,7 +53,7 @@ function parseJSONWithRepair(candidate: string): any {
 function repairCommonSmallModelJSON(candidate: string): string {
   return candidate
     .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":')
-    .replace(/:\s*(low|medium|high|search|shadow|intercept|strike|withdraw|protect|raid|support_landing|repair|hold|ready|good|limited|critical|unknown|none)(\s*[,}\]])/gi, (_m, value, suffix) => `: "${String(value).toLowerCase()}"${suffix}`)
+    .replace(/:\s*(low|medium|high|search|shadow|intercept|strike|withdraw|protect|raid|support_landing|repair|hold|screen|surface|bombard|replenish|transport|air_ops|ready|good|limited|critical|unknown|none)(\s*[,}\]])/gi, (_m, value, suffix) => `: "${String(value).toLowerCase()}"${suffix}`)
     .replace(/,\s*([}\]])/g, '$1');
 }
 
@@ -62,31 +65,36 @@ function normalizeDecisionActions(payload: any, context: LLMDecisionContext): LL
   const reviewed = Array.isArray(payload.availableDecisionReview)
     ? payload.availableDecisionReview.find((item: any) => item?.feasible !== false && item?.actionType)
     : undefined;
+  const recommended = pickRecommendedOrder(context, reviewed?.actionType);
+  const recommendedFields: Partial<RecommendedOrderFields> = recommended?.fields || {};
   const option = reviewed
     ? context.decisionFramework?.availableOptions.find(o => o.actionType === reviewed.actionType)
-    : context.decisionFramework?.availableOptions[0];
-  if (!reviewed && !option) return [];
+    : (recommended
+      ? context.decisionFramework?.availableOptions.find(o => o.actionType === recommended.type)
+      : context.decisionFramework?.availableOptions[0]);
+  if (!reviewed && !option && !recommended) return [];
 
-  const actionType = String(reviewed?.actionType || option?.actionType || '') as LLMCommanderDecision['decisions'][number]['type'];
-  const fleetId = option?.fleetId || context.ownForces[0]?.fleetId;
-  const quantity = normalizeQuantity(reviewed?.quantity, option?.maxQuantity);
+  const actionType = String(reviewed?.actionType || recommended?.type || option?.actionType || '') as LLMCommanderDecision['decisions'][number]['type'];
+  const fleetId = option?.fleetId || recommendedFields.fleetId || context.ownForces[0]?.fleetId;
+  const quantity = normalizeQuantity(reviewed?.quantity, option?.maxQuantity ?? recommendedFields.aircraftCount);
   const reason = String(reviewed?.reason || option?.reason || payload.selectedDecisionRationale || 'normalized from decision review');
   const base = {
     type: actionType,
+    ...recommendedFields,
     fleetId,
     priority: 1,
-    reason,
+    reason: recommended?.reason || reason,
     successEstimate: normalizeEstimate(reviewed?.estimatedSuccess || option?.estimatedSuccess),
     expectedEffect: String(payload.missionAnalysis?.desiredEffect || ''),
     resourceCommitment: quantity ? `${quantity} aircraft` : undefined,
   };
 
   if (actionType === 'launch_search') {
-    const heading = extractHeading(String(reviewed?.method || option?.method || '')) ?? extractHeading(String(option?.method || '')) ?? 270;
+    const heading = recommendedFields.headingDeg ?? extractHeading(String(reviewed?.method || option?.method || '')) ?? extractHeading(String(option?.method || '')) ?? 270;
     return [{
       ...base,
-      aircraftCount: quantity || option?.maxQuantity || 4,
-      searchArcDeg: { centerDeg: heading, widthDeg: 60, range: 160 },
+      aircraftCount: quantity || option?.maxQuantity || recommendedFields.aircraftCount || 4,
+      searchArcDeg: recommendedFields.searchArcDeg || { centerDeg: heading, widthDeg: 60, range: 160 },
     }];
   }
 
@@ -98,19 +106,54 @@ function normalizeDecisionActions(payload: any, context: LLMDecisionContext): LL
     }];
   }
 
+  if (actionType === 'prepare_strike') {
+    return [{ ...base, aircraftCount: quantity || option?.maxQuantity, durationTurns: 2 }];
+  }
+
+  if (actionType === 'recover_aircraft' || actionType === 'lay_smoke' || actionType === 'radio_silence' || actionType === 'replenish_at_sea') {
+    return [{ ...base, durationTurns: 2 }];
+  }
+
+  if (actionType === 'vector_cap') {
+    return [{ ...base, targetPosition: context.knownContacts[0]?.lastKnownPosition, contactId: context.knownContacts[0]?.contactId, durationTurns: 1 }];
+  }
+
+  if (actionType === 'surface_engage' || actionType === 'launch_torpedo_attack' || actionType === 'bombard_airfield') {
+    return [{ ...base, contactId: option?.targetId || recommendedFields.contactId || context.knownContacts[0]?.contactId, durationTurns: recommendedFields.durationTurns || 1 }];
+  }
+
+  if (actionType === 'run_transport') {
+    return [{ ...base, baseId: option?.targetId || recommendedFields.baseId, targetPosition: recommendedFields.targetPosition || context.knownBases[0]?.position, durationTurns: recommendedFields.durationTurns || 3 }];
+  }
+
   if (actionType === 'launch_strike' || actionType === 'shadow_contact' || actionType === 'intercept_contact') {
     return [{
       ...base,
-      contactId: option?.targetId,
-      aircraftCount: actionType === 'launch_strike' ? quantity || option?.maxQuantity || 8 : undefined,
+      contactId: option?.targetId || recommendedFields.contactId,
+      aircraftCount: actionType === 'launch_strike' ? quantity || option?.maxQuantity || recommendedFields.aircraftCount || 8 : undefined,
     }];
   }
 
   if (actionType === 'repair_fleet' || actionType === 'protect_base' || actionType === 'support_landing') {
-    return [{ ...base, baseId: option?.targetId }];
+    return [{ ...base, baseId: option?.targetId || recommendedFields.baseId }];
   }
 
   return [base];
+}
+
+function pickRecommendedOrder(context: LLMDecisionContext, preferredType?: string) {
+  const cards = context.commanderBrief?.taskCards || [];
+  if (preferredType) {
+    for (const card of cards) {
+      const match = card.recommendedOrders.find((order) => order.type === preferredType && !card.avoidActionTypes.includes(order.type));
+      if (match) return match;
+    }
+  }
+  for (const card of cards) {
+    const match = card.recommendedOrders.find((order) => !card.avoidActionTypes.includes(order.type));
+    if (match) return match;
+  }
+  return undefined;
 }
 
 function normalizeQuantity(value: unknown, max?: number): number | undefined {
@@ -134,8 +177,14 @@ function inferIntent(actionType?: string): LLMCommanderDecision['intent'] {
   if (actionType === 'launch_strike') return 'strike';
   if (actionType === 'withdraw_fleet') return 'withdraw';
   if (actionType === 'repair_fleet') return 'repair';
-  if (actionType === 'launch_cap' || actionType === 'protect_base' || actionType === 'protect_supply_line') return 'protect';
+  if (actionType === 'launch_cap' || actionType === 'protect_base' || actionType === 'protect_supply_line' || actionType === 'vector_cap') return 'protect';
   if (actionType === 'move_fleet' || actionType === 'intercept_contact') return 'intercept';
+  if (actionType === 'prepare_strike' || actionType === 'recover_aircraft') return 'air_ops';
+  if (actionType === 'lay_smoke' || actionType === 'radio_silence') return 'screen';
+  if (actionType === 'surface_engage' || actionType === 'launch_torpedo_attack') return 'surface';
+  if (actionType === 'bombard_airfield') return 'bombard';
+  if (actionType === 'replenish_at_sea') return 'replenish';
+  if (actionType === 'run_transport') return 'transport';
   return 'hold';
 }
 

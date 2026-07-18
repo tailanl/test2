@@ -1,0 +1,17 @@
+{
+  "host": "127.0.0.1",
+  "port": 8787,
+  "dataDir": "artifacts/multiplayer",
+  "recordingEnabled": true,
+  "qq": {
+    "enabled": false,
+    "dryRun": true,
+    "endpoint": "http://127.0.0.1:3000",
+    "accessToken": "",
+    "groupId": "",
+    "defaultRoomId": "default",
+    "inboundEnabled": true,
+    "commandPrefix": "!",
+    "playerMap": {}
+  }
+}

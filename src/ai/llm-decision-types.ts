@@ -53,6 +53,35 @@ export interface LLMDecisionContext {
         hull: number;
       };
     };
+    operation?: {
+      posture: string;
+      startedTurn: number;
+      durationTurns?: number;
+      targetContactId?: string;
+      targetBaseId?: string;
+      targetPosition?: { x: number; y: number };
+      description: string;
+      expectedEffect?: string;
+    };
+    navigation?: {
+      status: string;
+      mode?: string;
+      routeSource?: string;
+      destination: { x: number; y: number };
+      manualWaypoints?: Array<{ x: number; y: number }>;
+      nextWaypoint?: { x: number; y: number };
+      etaTurns?: number;
+      totalDistance?: number;
+      routeRisk?: string;
+      riskScore?: number;
+      currentLegNote?: string;
+      remainingWaypoints: number;
+    };
+    automation?: {
+      priorities: Record<string, number>;
+      lastTask?: string;
+      lastTaskTurn?: number;
+    };
   }>;
 
   knownContacts: Array<{
@@ -87,6 +116,8 @@ export interface LLMDecisionContext {
 
   legalActionHints: string[];
   decisionFramework?: LLMDecisionFramework;
+  commanderBrief?: LLMCommanderBrief;
+  reconAssessment?: LLMReconAssessment;
   visualAssessment?: {
     assessment: string;
     bearingSummary: string;
@@ -94,6 +125,64 @@ export interface LLMDecisionContext {
     recommendation: string;
     model: string;
   };
+}
+
+export interface LLMReconAssessment {
+  summary: string;
+  recommendedSearches: string[];
+  staleContactIds: string[];
+  clouds: Array<{
+    id: string;
+    kind: 'search_coverage' | 'contact_probability';
+    sourceId: string;
+    label: string;
+    center: { x: number; y: number };
+    radiusX: number;
+    radiusY: number;
+    bearingDeg?: number;
+    arcWidthDeg?: number;
+    range?: number;
+    probability: number;
+    confidence: 'low' | 'medium' | 'high';
+    freshness: number;
+    risk: 'low' | 'medium' | 'high';
+    recommendation: string;
+    strikeWindowTurns?: number;
+  }>;
+}
+
+export interface LLMCommanderBrief {
+  summary: string;
+  actionWritingRules: string[];
+  taskCards: LLMCommanderTaskCard[];
+}
+
+export interface LLMCommanderTaskCard {
+  fleetId: string;
+  fleetName: string;
+  priority: number;
+  currentProblem: string;
+  recommendedOrders: Array<{
+    type: LLMDecisionActionType;
+    reason: string;
+    fields: {
+      fleetId: string;
+      contactId?: string;
+      baseId?: string;
+      targetPosition?: { x: number; y: number };
+      headingDeg?: number;
+      aircraftCount?: number;
+      searchArcDeg?: { centerDeg: number; widthDeg: number; range?: number };
+      navigationMode?: LLMDecisionAction['navigationMode'];
+      formationType?: LLMDecisionAction['formationType'];
+      durationTurns?: number;
+    };
+  }>;
+  avoidActionTypes: LLMDecisionActionType[];
+  resourceLimits: string[];
+  navigationAdvice: string;
+  airOpsAdvice: string;
+  reviewTrigger: string;
 }
 
 export interface LLMDecisionFramework {
@@ -127,7 +216,10 @@ export interface LLMAvailableDecisionOption {
 export type LLMDecisionActionType =
   | 'assign_mission' | 'move_fleet' | 'launch_search' | 'launch_cap' | 'launch_strike'
   | 'shadow_contact' | 'intercept_contact' | 'withdraw_fleet' | 'repair_fleet'
-  | 'protect_base' | 'protect_supply_line' | 'support_landing' | 'hold_position';
+  | 'protect_base' | 'protect_supply_line' | 'support_landing' | 'hold_position'
+  | 'prepare_strike' | 'recover_aircraft' | 'vector_cap' | 'lay_smoke'
+  | 'surface_engage' | 'launch_torpedo_attack' | 'radio_silence'
+  | 'bombard_airfield' | 'replenish_at_sea' | 'run_transport';
 
 export interface LLMDecisionAction {
   type: LLMDecisionActionType;
@@ -139,6 +231,11 @@ export interface LLMDecisionAction {
   mission?: string;
   headingDeg?: number;
   speedKts?: number;
+  navigationMode?: 'direct' | 'safe_transit' | 'combat_approach' | 'night_dash' | 'withdrawal' | 'rendezvous';
+  formationType?: 'standard_screen' | 'line_abreast' | 'circular_screen' | 'column' | 'scout_line';
+  doctrine?: 'carrier_search' | 'carrier_strike' | 'surface_night_attack' | 'convoy_evasion' | 'replenishment';
+  timing?: 'immediate' | 'dawn' | 'dusk' | 'night' | 'after_search_confirmed';
+  coordination?: string;
   aircraftCount?: number;
   durationTurns?: number;
   searchArea?: { x: number; y: number; radius?: number };
@@ -182,7 +279,7 @@ export interface LLMCommanderDecision {
   }>;
   selectedDecisionRationale?: string;
   assessment: string;
-  intent: 'search'|'shadow'|'intercept'|'strike'|'withdraw'|'protect'|'raid'|'support_landing'|'repair'|'hold';
+  intent: 'search'|'shadow'|'intercept'|'strike'|'withdraw'|'protect'|'raid'|'support_landing'|'repair'|'hold'|'screen'|'surface'|'bombard'|'replenish'|'transport'|'air_ops';
   confidence: 'low'|'medium'|'high';
   risk: 'low'|'medium'|'high';
   decisions: LLMDecisionAction[];

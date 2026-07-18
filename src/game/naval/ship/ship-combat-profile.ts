@@ -1,4 +1,5 @@
 import type { NavalShip } from './ship-types';
+import type { FleetFormationState } from '../naval-strategic-types';
 import type { ShipModuleType } from './ship-modules';
 import type { NavalWeaponType } from './ship-weapons';
 import type { NavalSensorType } from '../intel/naval-intel-types';
@@ -43,12 +44,22 @@ export interface ShipCombatProfile {
   };
 }
 
+export interface FleetFormationEffectSummary {
+  label: string;
+  searchArcModifier: number;
+  searchRangeModifier: number;
+  antiAirCenterModifier: number;
+  screenCoverageModifier: number;
+  effectiveAntiAir: number;
+}
+
 export interface FleetCombatProfile {
   fleetId: string;
   readiness: number;
   firepower: ShipFirepowerSummary;
   modules: ShipModuleReadinessSummary;
   ships: ShipCombatProfile[];
+  formationEffects?: FleetFormationEffectSummary;
 }
 
 const WEAPON_MODULES: Record<NavalWeaponType, ShipModuleType[]> = {
@@ -232,7 +243,7 @@ export function getShipCombatProfile(ship: NavalShip): ShipCombatProfile {
   };
 }
 
-export function getFleetCombatProfile(fleet: { id: string; ships: NavalShip[] }): FleetCombatProfile {
+export function getFleetCombatProfile(fleet: { id: string; ships: NavalShip[]; formation?: FleetFormationState }): FleetCombatProfile {
   const ships = fleet.ships.map(getShipCombatProfile);
   const emptyModules: ShipModuleReadinessSummary = {
     mobility: 0,
@@ -274,6 +285,15 @@ export function getFleetCombatProfile(fleet: { id: string; ships: NavalShip[] })
   }), emptyFirepower);
 
   const count = ships.length;
+  const formationEffects = fleet.formation ? {
+    label: fleet.formation.type.replace(/_/g, ' '),
+    searchArcModifier: fleet.formation.searchArcModifier,
+    searchRangeModifier: fleet.formation.searchRangeModifier,
+    antiAirCenterModifier: fleet.formation.antiAirCenterModifier,
+    screenCoverageModifier: fleet.formation.screenCoverageModifier,
+    effectiveAntiAir: Math.round(firepower.antiAir * fleet.formation.antiAirCenterModifier),
+  } : undefined;
+
   return {
     fleetId: fleet.id,
     readiness: Math.round(ships.reduce((sum, ship) => sum + ship.readiness, 0) / count),
@@ -288,5 +308,6 @@ export function getFleetCombatProfile(fleet: { id: string; ships: NavalShip[] })
       hull: Math.round(modules.hull / count),
     },
     ships,
+    formationEffects,
   };
 }

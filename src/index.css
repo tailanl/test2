@@ -2,11 +2,13 @@
 
 /* ===== Naval Wargame - Pacific Dark Theme ===== */
 :root {
-  --navy-900: #0a0e1a;
-  --navy-800: #0f1729;
-  --navy-700: #162032;
-  --navy-600: #1e2d45;
-  --ocean: #0c4a6e;
+  --navy-950: #050b14;
+  --navy-900: #07111f;
+  --navy-800: #0b1a2a;
+  --navy-700: #13253a;
+  --navy-600: #1d3652;
+  --ocean: #0a3f62;
+  --cyan: #38bdf8;
   --gold: #f59e0b;
   --gold-dim: #b45309;
 }
@@ -16,15 +18,38 @@
 html, body, #root {
   width: 100%; height: 100%;
   overflow: hidden;
-  background: var(--navy-900);
+  background: var(--navy-950);
   color: #e2e8f0;
   font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 14px;
+  font-synthesis-weight: none;
+  text-rendering: geometricPrecision;
+}
+
+button, input, select, textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.75);
+  outline-offset: 2px;
 }
 
 ::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: var(--navy-800); }
-::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+::-webkit-scrollbar-track { background: #07111f; }
+::-webkit-scrollbar-thumb { background: #31506c; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4b7394; }
+
+.side-nav-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #0f1729;
+}
+.side-nav-scroll::-webkit-scrollbar { height: 6px; }
+.side-nav-scroll::-webkit-scrollbar-track { background: #0f1729; border-radius: 999px; }
+.side-nav-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
 
 /* Grid dots background */
 .navy-bg {
@@ -35,9 +60,9 @@ html, body, #root {
 
 /* Glass panel */
 .glass {
-  background: rgba(15, 23, 42, 0.85);
+  background: rgba(8, 22, 36, 0.86);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.13);
 }
 
 /* Gold accent buttons */
@@ -80,3 +105,208 @@ html, body, #root {
 .sea-shallow { fill: #0f766e; }
 .sea-reef { fill: #14b8a6; }
 .land-island { fill: #1a3a1a; }
+
+/* Battlefield board layer inspired by tabletop command maps. */
+.battlefield-frame {
+  box-shadow: inset 0 0 0 2px rgba(212, 192, 138, 0.28), inset 0 -110px 120px rgba(20, 12, 7, 0.28);
+}
+
+.battlefield-top-rail {
+  pointer-events: auto;
+  filter: drop-shadow(0 12px 18px rgba(2, 6, 23, 0.44));
+}
+
+.battlefield-round-button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 2px solid rgba(226, 232, 240, 0.72);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 35% 24%, rgba(255,255,255,0.72), rgba(255,255,255,0.12) 22%, transparent 36%),
+    linear-gradient(145deg, #4d6ea8, #1d3470 55%, #14234f);
+  color: #f8fafc;
+  box-shadow: inset 0 -5px 8px rgba(2, 6, 23, 0.46), 0 2px 0 rgba(15, 23, 42, 0.8);
+  cursor: pointer;
+}
+
+.battlefield-round-button img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 2px rgba(2, 6, 23, 0.55));
+}
+
+.battlefield-round-button span {
+  font-size: 24px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.battlefield-round-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(253, 230, 138, 0.92);
+  filter: brightness(1.08);
+}
+
+.battlefield-round-button.is-active {
+  border-color: rgba(253, 224, 71, 0.95);
+  background:
+    radial-gradient(circle at 35% 24%, rgba(255,255,255,0.78), rgba(255,255,255,0.16) 22%, transparent 36%),
+    linear-gradient(145deg, #b88b31, #7a4c12 55%, #3b280f);
+  color: #fff7ed;
+}
+
+.battlefield-round-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+  filter: grayscale(0.65);
+}
+
+.battlefield-turn-box {
+  min-width: 142px;
+  border: 2px solid rgba(212, 192, 138, 0.78);
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, rgba(55, 43, 33, 0.95), rgba(26, 20, 17, 0.96)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 2px, transparent 2px 9px);
+  color: #f8fafc;
+  padding: 6px 14px;
+  text-align: center;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.75);
+}
+
+.battlefield-turn-box span,
+.battlefield-turn-box b {
+  display: block;
+  font-weight: 900;
+}
+
+.battlefield-turn-box b {
+  margin-top: 2px;
+  color: #d4c08a;
+  font-size: 11px;
+}
+
+.battlefield-waypoint-strip {
+  pointer-events: auto;
+  border: 2px solid rgba(103, 232, 249, 0.4);
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(8, 47, 73, 0.88)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 12px);
+  box-shadow: 0 16px 30px rgba(2, 6, 23, 0.42), inset 0 0 0 1px rgba(186, 230, 253, 0.08);
+}
+
+.battlefield-waypoint-strip button {
+  border: 1px solid rgba(125, 211, 252, 0.45);
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.68);
+  color: #e0f2fe;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.battlefield-waypoint-strip button:hover:not(:disabled) {
+  border-color: rgba(253, 230, 138, 0.9);
+  color: #fef3c7;
+}
+
+.battlefield-waypoint-strip button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.battlefield-command-dock {
+  pointer-events: auto;
+  border: 2px solid rgba(93, 72, 52, 0.9);
+  border-radius: 7px;
+  background:
+    linear-gradient(90deg, rgba(37, 26, 20, 0.95), rgba(75, 58, 42, 0.94), rgba(35, 24, 18, 0.96)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 14px);
+  box-shadow: 0 18px 38px rgba(2, 6, 23, 0.45), inset 0 0 0 1px rgba(245, 222, 179, 0.12);
+}
+
+.battlefield-unit-slot {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 2px solid rgba(212, 192, 138, 0.64);
+  border-radius: 7px;
+  background: linear-gradient(145deg, rgba(54, 80, 118, 0.88), rgba(19, 34, 67, 0.92));
+  box-shadow: inset 0 -6px 8px rgba(2, 6, 23, 0.35);
+}
+
+.battlefield-unit-slot img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+}
+
+.battlefield-confirm-button {
+  min-width: 76px;
+  border: 2px solid rgba(21, 128, 61, 0.55);
+  border-radius: 7px;
+  background: linear-gradient(145deg, #3c9d58, #166534);
+  color: #ecfdf5;
+  padding: 10px 14px;
+  font-weight: 950;
+  box-shadow: inset 0 -5px 7px rgba(2, 6, 23, 0.32);
+  cursor: pointer;
+}
+
+.battlefield-confirm-button:hover {
+  filter: brightness(1.08);
+}
+
+@media (max-width: 760px) {
+  .battlefield-top-rail {
+    top: 6px;
+    gap: 4px;
+  }
+
+  .battlefield-round-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .battlefield-round-button img {
+    width: 23px;
+    height: 23px;
+  }
+
+  .battlefield-turn-box {
+    min-width: 96px;
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  .battlefield-waypoint-strip {
+    top: 48px;
+    max-width: calc(100% - 1rem);
+    gap: 4px;
+    padding: 6px;
+    font-size: 10px;
+  }
+
+  .battlefield-waypoint-strip button {
+    padding: 5px 7px;
+  }
+
+  .battlefield-command-dock {
+    bottom: 8px;
+    padding: 8px;
+  }
+
+  .battlefield-unit-slot {
+    width: 38px;
+    height: 38px;
+  }
+
+  .battlefield-unit-slot img {
+    width: 30px;
+    height: 30px;
+  }
+}

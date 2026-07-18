@@ -9,6 +9,9 @@ const IMPLEMENTED_ACTIONS = new Set([
   'assign_mission', 'move_fleet', 'launch_search', 'launch_cap', 'launch_strike',
   'shadow_contact', 'intercept_contact', 'withdraw_fleet', 'repair_fleet',
   'protect_base', 'protect_supply_line', 'support_landing', 'hold_position',
+  'prepare_strike', 'recover_aircraft', 'vector_cap', 'lay_smoke',
+  'surface_engage', 'launch_torpedo_attack', 'radio_silence',
+  'bombard_airfield', 'replenish_at_sea', 'run_transport',
 ]);
 
 export function validateLLMCommanderDecision(params: {
@@ -49,6 +52,15 @@ export function validateLLMCommanderDecision(params: {
 
   function knownFleetFor(action: LLMDecisionAction) {
     return action.fleetId ? knowledge.knownOwnFleets.find(f => f.fleetId === action.fleetId) : undefined;
+  }
+
+  function combatFirepower(action: LLMDecisionAction): { surface: number; torpedo: number; antiAir: number } {
+    const fleet = fleetFor(action);
+    return {
+      surface: fleet?.combatProfile?.firepower.antiSurface ?? 0,
+      torpedo: fleet?.combatProfile?.firepower.torpedo ?? 0,
+      antiAir: fleet?.combatProfile?.firepower.antiAir ?? 0,
+    };
   }
 
   function carrierAirCapacity(action: LLMDecisionAction): { search: number; cap: number; strike: number; ready: number } {
@@ -217,6 +229,95 @@ export function validateLLMCommanderDecision(params: {
         }
         if (fleet && fleet.damageSummary === 'intact' && fleet.readiness !== 'repairing') {
           warnings.push(`Fleet ${fleet.name} is intact; repair_fleet will only set repair posture`);
+        }
+        break;
+
+      case 'prepare_strike':
+        if (fleet && (fleet.aircraftState === 'depleted' || carrierAirCapacity(action).strike <= 0)) {
+          reject(action, `Fleet ${fleet.name} has no ready strike aircraft to prepare`);
+          ok = false;
+        }
+        if (fleet && fleet.readiness === 'repairing') {
+          reject(action, `Fleet ${fleet.name} is repairing and cannot prepare strike deck cycles`);
+          ok = false;
+        }
+        break;
+
+      case 'recover_aircraft':
+        if (fleet && !fleet.carrierAir) {
+          reject(action, `Fleet ${fleet.name} has no carrier deck for aircraft recovery`);
+          ok = false;
+        }
+        break;
+
+      case 'vector_cap':
+        if (fleet && carrierAirCapacity(action).cap <= 0 && !fleet.operation?.posture.includes('fighter')) {
+          reject(action, `Fleet ${fleet.name} has no fighter direction capacity or ready fighters`);
+          ok = false;
+        }
+        if (!action.contactId && !isValidPosition(action.targetPosition) && !action.searchArea) {
+          reject(action, 'vector_cap requires contactId, targetPosition, or searchArea');
+          ok = false;
+        }
+        break;
+
+      case 'lay_smoke':
+      case 'radio_silence':
+        break;
+
+      case 'surface_engage':
+      case 'launch_torpedo_attack': {
+        if (!action.contactId) {
+          reject(action, `${action.type} requires contactId`);
+          ok = false;
+          break;
+        }
+        const contact = context.knownContacts.find(c => c.contactId === action.contactId);
+        if (!contact || lowConfidenceLevels.has(contact.detectionLevel) || !allowedStrikeLevels.has(contact.detectionLevel)) {
+          reject(action, `Cannot ${action.type === 'surface_engage' ? 'engage' : 'torpedo attack'} low-confidence contact - need tracked/identified/classified`);
+          ok = false;
+        }
+        const firepower = combatFirepower(action);
+        if (action.type === 'surface_engage' && firepower.surface <= 0) {
+          reject(action, `Fleet ${fleet?.name || action.fleetId} lacks surface firepower`);
+          ok = false;
+        }
+        if (action.type === 'launch_torpedo_attack' && firepower.torpedo <= 0) {
+          reject(action, `Fleet ${fleet?.name || action.fleetId} lacks torpedo capability`);
+          ok = false;
+        }
+        break;
+      }
+
+      case 'bombard_airfield':
+        if (!action.baseId && !action.contactId && !isValidPosition(action.targetPosition)) {
+          reject(action, 'bombard_airfield requires known baseId, contactId, or targetPosition');
+          ok = false;
+        }
+        if (action.baseId && !knownBaseIds.has(action.baseId)) {
+          reject(action, `Base ${action.baseId} not known for bombardment`);
+          ok = false;
+        }
+        if (fleet && combatFirepower(action).surface <= 0) {
+          reject(action, `Fleet ${fleet.name} lacks surface firepower for bombardment`);
+          ok = false;
+        }
+        break;
+
+      case 'replenish_at_sea':
+        if (fleet && fleet.type !== 'supply_group' && fleet.fuelState === 'good' && fleet.ammoState === 'good' && fleet.aircraftState !== 'depleted') {
+          warnings.push(`Fleet ${fleet.name} is already supplied; replenish_at_sea will only set rendezvous posture`);
+        }
+        break;
+
+      case 'run_transport':
+        if (fleet && !['transport_convoy', 'amphibious_group', 'supply_group'].includes(fleet.type)) {
+          reject(action, `Fleet ${fleet.name} is not a transport/amphibious/supply group`);
+          ok = false;
+        }
+        if (!isValidPosition(action.targetPosition) && !action.baseId) {
+          reject(action, 'run_transport requires targetPosition or baseId');
+          ok = false;
         }
         break;
 

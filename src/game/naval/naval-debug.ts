@@ -589,7 +589,7 @@ export function runAllSelfTests(): SelfTestResult[] {
         searchArcDeg: { centerDeg: 0, widthDeg: 120, range: 40 },
         aircraftCount: 4,
       });
-      const missionCreated = result.mission.type === 'search' && result.mission.status === 'launched';
+      const missionCreated = result.mission.type === 'search' && result.mission.status === 'preparing';
       const aircraftDeducted = result.airGroup.readyAircraft < carrier.aircraft.readyAircraft;
       results.push({ name: 'Aircraft: Search Mission', passed: missionCreated && aircraftDeducted, detail: `Mission:${result.mission.id} Ready:${result.airGroup.readyAircraft}` });
     }

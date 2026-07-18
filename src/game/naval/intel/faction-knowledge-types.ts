@@ -6,6 +6,7 @@
 import type { NavalContact } from '../intel/naval-intel-types';
 import type { NavalAIReport } from '../ai/naval-ai-types';
 import type { FleetCombatProfile, ShipCombatProfile } from '../ship/ship-combat-profile';
+import type { FleetAutomationState, FleetNavigationState, FleetOperationState } from '../naval-strategic-types';
 
 export type FactionId = 'player' | 'enemy';
 
@@ -33,6 +34,9 @@ export interface KnownOwnFleet {
     deckCycleState?: string;
   };
   combatProfile?: FleetCombatProfile;
+  operation?: FleetOperationState;
+  navigation?: FleetNavigationState;
+  automation?: FleetAutomationState;
   ships: KnownOwnShip[];
 }
 

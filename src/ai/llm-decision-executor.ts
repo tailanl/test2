@@ -35,6 +35,16 @@ export interface LLMDecisionStoreCalls {
   shadowContact: (action: LLMDecisionAction) => string;
   interceptContact: (action: LLMDecisionAction) => string;
   supportLanding: (action: LLMDecisionAction) => string;
+  prepareStrike: (action: LLMDecisionAction) => string;
+  recoverAircraft: (action: LLMDecisionAction) => string;
+  vectorCap: (action: LLMDecisionAction) => string;
+  laySmoke: (action: LLMDecisionAction) => string;
+  surfaceEngage: (action: LLMDecisionAction) => string;
+  launchTorpedoAttack: (action: LLMDecisionAction) => string;
+  radioSilence: (action: LLMDecisionAction) => string;
+  bombardAirfield: (action: LLMDecisionAction) => string;
+  replenishAtSea: (action: LLMDecisionAction) => string;
+  runTransport: (action: LLMDecisionAction) => string;
 }
 
 export function executeLLMDecisionActions(params: {
@@ -91,6 +101,26 @@ function executeOne(action: LLMDecisionAction, storeCalls: LLMDecisionStoreCalls
       return storeCalls.interceptContact(action);
     case 'support_landing':
       return storeCalls.supportLanding(action);
+    case 'prepare_strike':
+      return storeCalls.prepareStrike(action);
+    case 'recover_aircraft':
+      return storeCalls.recoverAircraft(action);
+    case 'vector_cap':
+      return storeCalls.vectorCap(action);
+    case 'lay_smoke':
+      return storeCalls.laySmoke(action);
+    case 'surface_engage':
+      return storeCalls.surfaceEngage(action);
+    case 'launch_torpedo_attack':
+      return storeCalls.launchTorpedoAttack(action);
+    case 'radio_silence':
+      return storeCalls.radioSilence(action);
+    case 'bombard_airfield':
+      return storeCalls.bombardAirfield(action);
+    case 'replenish_at_sea':
+      return storeCalls.replenishAtSea(action);
+    case 'run_transport':
+      return storeCalls.runTransport(action);
     default:
       return assertNever(action.type);
   }

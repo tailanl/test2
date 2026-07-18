@@ -20,10 +20,12 @@ import { getGLMKey } from './api-key';
 import { GLM_DEFAULTS } from './glm-config';
 import { createDefaultReport, type NavalAIReport, type NavalReportType } from '../game/naval/ai/naval-ai-types';
 import { createCAPMission, createSearchMission, createStrikeMission } from '../game/naval/ship/ship-aircraft';
-import type { LLMDecisionAction, LLMDecisionContext, LLMCommanderDecision, LLMDecisionFramework, LLMAvailableDecisionOption } from './llm-decision-types';
+import { buildFleetNavigationRoute } from '../game/naval/naval-route-planner';
+import { buildReconProbabilityClouds, summarizeReconClouds } from '../game/naval/intel/recon-probability';
+import type { LLMDecisionAction, LLMDecisionContext, LLMCommanderDecision, LLMDecisionFramework, LLMAvailableDecisionOption, LLMCommanderBrief } from './llm-decision-types';
 import { createTraceId, isLLMDecisionProviderResult, type LLMDecisionProviderResult, type LLMOutputTrace } from './llm-output-trace';
 import type { FactionKnowledgeState } from '../game/naval/intel/faction-knowledge-types';
-import type { StrategicFleet, NavalFleetMission, CommanderIntent } from '../game/naval/naval-strategic-types';
+import type { FleetNavigationMode, StrategicFleet, NavalFleetMission, CommanderIntent, FleetOperationState } from '../game/naval/naval-strategic-types';
 import type { NavalBattleLogEvent } from '../game/naval/ship/ship-damage';
 
 export interface AIStateDiff {
@@ -47,6 +49,7 @@ export interface AIStateSnapshot {
     fuelState?: string;
     ammoState?: string;
     repairStatus?: string;
+    operation?: string;
   }>;
   searchMissionCount: number;
   airOperationCount: number;
@@ -245,7 +248,17 @@ function enrichContext(context: LLMDecisionContext, state: any): void {
     lastContactTurn: Math.max(...context.knownContacts.map(c => c.lastDetectedTurn), 0),
     currentTurn: state.currentTurn,
   });
-  context.legalActionHints.push(...searchPlan.sectors.map(s => `search_${s.heading}deg@P${s.priority}`));
+  context.legalActionHints.push(...searchPlan.sectors.map(s => `search_${Math.round(s.heading)}deg@P${s.priority}`));
+  const ownFleetNames = new Set(context.ownForces.map((fleet) => fleet.name));
+  const reconClouds = buildReconProbabilityClouds({
+    contacts: context.faction === 'enemy' ? state.intel?.enemyContacts || [] : state.intel?.playerContacts || [],
+    airOperations: (state.airOperations || []).filter((op: any) => !op.fleetName || ownFleetNames.has(op.fleetName)),
+    searchMissions: state.intel?.searchMissions || [],
+    currentTurn: state.currentTurn,
+    weather: state.weather || state.environment?.weather,
+    ownPosition: context.ownForces[0]?.position,
+  });
+  context.reconAssessment = summarizeReconClouds(reconClouds);
 
   const threat = assessThreat({
     contacts: context.knownContacts.map(c => ({ detectionLevel: c.detectionLevel, estimatedClass: c.estimatedClass, confidence: c.confidence })),
@@ -264,6 +277,7 @@ function enrichContext(context: LLMDecisionContext, state: any): void {
   const doctrine = getDoctrineForPhase(state.currentPhase || '');
   context.legalActionHints.push(`doctrine:${doctrine.type}`);
   context.decisionFramework = createDecisionFramework({ context, state, searchPlan, threat });
+  context.commanderBrief = createCommanderBrief({ context, searchPlan, threat });
 }
 
 function createDecisionFramework(params: {
@@ -302,7 +316,7 @@ function createDecisionFramework(params: {
       self: ownFleet
         ? `${ownFleet.name} mission ${ownFleet.currentMission || 'unknown'}, readiness ${ownFleet.readiness}, damage ${ownFleet.damageSummary}, fuel ${ownFleet.fuelState}, ammo ${ownFleet.ammoState}, ready aircraft ${ownFleet.carrierAir?.readyAircraft ?? 0}, firepower AA ${ownFleet.combatProfile?.firepower.antiAir ?? 0}/surface ${ownFleet.combatProfile?.firepower.antiSurface ?? 0}/torpedo ${ownFleet.combatProfile?.firepower.torpedo ?? 0}/strike ${ownFleet.combatProfile?.firepower.aviationStrike ?? 0}.`
         : 'No own fleet available.',
-      battlefield: `Weather ${state.weather || 'unknown'}; threat ${threat.overallThreat}; search plan ${searchPlan.rationale}; nearest contact ${nearestContact?.contactId || 'none'}; nearest base ${nearestBase?.baseId || 'none'}.`,
+      battlefield: `Weather ${state.weather || 'unknown'}; threat ${threat.overallThreat}; search plan ${searchPlan.rationale}; recon ${context.reconAssessment?.summary || 'none'}; nearest contact ${nearestContact?.contactId || 'none'}; nearest base ${nearestBase?.baseId || 'none'}.`,
     },
     availableOptions: buildAvailableOptions({ context, searchPlan, threat, nearestBase }),
   };
@@ -325,7 +339,7 @@ function buildAvailableOptions(params: {
     options.push({
       actionType: 'launch_search',
       fleetId: fleet.fleetId,
-      method: `air search heading ${Math.round(firstSector.heading)} width ${firstSector.widthDeg}`,
+      method: `air search heading ${Math.round(firstSector.heading)} width ${firstSector.widthDeg} range ${firstSector.range}`,
       maxQuantity: Math.min(6, air?.maxSearchAircraft ?? 0),
       estimatedSuccess: estimateSearchSuccess(context, threat),
       constraints: ['requires ready aircraft', 'will not identify hidden fleets automatically'],
@@ -343,7 +357,53 @@ function buildAvailableOptions(params: {
       constraints: ['requires ready fighters'],
       reason: 'Protect carrier force against air threat or uncertainty.',
     });
+    options.push({
+      actionType: 'vector_cap',
+      fleetId: fleet.fleetId,
+      method: 'fleet-level fighter direction toward likely threat axis',
+      estimatedSuccess: threat.air.level === 'high' ? 'medium' : 'high',
+      constraints: ['requires fighter direction capacity or ready fighters'],
+      reason: 'Use radar/CIC style direction without micromanaging fighters.',
+    });
   }
+
+  if ((air?.maxStrikeAircraft ?? 0) > 0) {
+    options.push({
+      actionType: 'prepare_strike',
+      fleetId: fleet.fleetId,
+      method: 'carrier deck cycle prepares strike aircraft but does not launch yet',
+      maxQuantity: Math.min(18, air?.maxStrikeAircraft ?? 0),
+      estimatedSuccess: 'medium',
+      constraints: ['ties carrier deck cycle', 'abstract fleet-level posture'],
+      reason: 'Prepare a historically plausible strike cycle while waiting for reliable contact.',
+    });
+    options.push({
+      actionType: 'recover_aircraft',
+      fleetId: fleet.fleetId,
+      method: 'recover and reorganize carrier aircraft',
+      estimatedSuccess: 'high',
+      constraints: ['temporarily reduces launch flexibility'],
+      reason: 'Reset air operations without micromanaging deck details.',
+    });
+  }
+
+  options.push({
+    actionType: 'radio_silence',
+    fleetId: fleet.fleetId,
+    method: 'restrict transmissions and preserve concealment',
+    estimatedSuccess: 'medium',
+    constraints: ['slower coordination and reports'],
+    reason: 'Fleet-level communications posture for hidden movement.',
+  });
+
+  options.push({
+    actionType: 'lay_smoke',
+    fleetId: fleet.fleetId,
+    method: 'screen the task force with smoke at fleet scale',
+    estimatedSuccess: 'medium',
+    constraints: ['reduces own visibility and gunnery as well'],
+    reason: 'Useful for disengagement or covering transports without individual ship control.',
+  });
 
   for (const contact of context.knownContacts) {
     const strikeLegal = ['tracked', 'identified', 'classified', 'confirmed'].includes(contact.detectionLevel);
@@ -357,6 +417,28 @@ function buildAvailableOptions(params: {
       constraints: strikeLegal ? ['requires tracked/identified/classified contact', 'requires strike aircraft'] : ['do not strike low-confidence contact'],
       reason: `${contact.detectionLevel} contact ${contact.contactId} at uncertainty ${contact.uncertaintyRadius}.`,
     });
+    if (strikeLegal && (fleet.combatProfile?.firepower.antiSurface ?? 0) > 0) {
+      options.push({
+        actionType: 'surface_engage',
+        fleetId: fleet.fleetId,
+        targetId: contact.contactId,
+        method: 'fleet-level surface action posture',
+        estimatedSuccess: contact.uncertaintyRadius <= 25 ? 'medium' : 'low',
+        constraints: ['requires high-confidence contact', 'abstracts gunnery at fleet level'],
+        reason: `Surface action possible against ${contact.contactId}.`,
+      });
+    }
+    if (strikeLegal && (fleet.combatProfile?.firepower.torpedo ?? 0) > 0) {
+      options.push({
+        actionType: 'launch_torpedo_attack',
+        fleetId: fleet.fleetId,
+        targetId: contact.contactId,
+        method: 'fleet-level destroyer/cruiser torpedo attack posture',
+        estimatedSuccess: contact.uncertaintyRadius <= 20 ? 'medium' : 'low',
+        constraints: ['requires high-confidence contact', 'spends torpedo/ammunition readiness'],
+        reason: `Torpedo attack may disrupt ${contact.contactId}.`,
+      });
+    }
   }
 
   options.push({
@@ -392,7 +474,189 @@ function buildAvailableOptions(params: {
     });
   }
 
-  return options.slice(0, 8);
+  return options.slice(0, 12);
+}
+
+function createCommanderBrief(params: {
+  context: LLMDecisionContext;
+  searchPlan: ReturnType<typeof generateSearchPlan>;
+  threat: ReturnType<typeof assessThreat>;
+}): LLMCommanderBrief {
+  const { context, searchPlan, threat } = params;
+  const tracked = context.knownContacts.filter(c => ['tracked', 'identified', 'classified', 'confirmed'].includes(c.detectionLevel));
+  const weak = context.knownContacts.filter(c => ['suspected', 'detected', 'unknown'].includes(c.detectionLevel));
+  const taskCards = context.ownForces.map((fleet, index) => createCommanderTaskCard({
+    fleet,
+    index,
+    context,
+    searchPlan,
+    threat,
+    tracked,
+    weak,
+  })).sort((a, b) => a.priority - b.priority);
+
+  return {
+    summary: `${context.ownForces.length} own force(s); ${tracked.length} strike-legal contact(s); ${weak.length} low-confidence contact(s); posture ${context.strategicSituation.posture}; risk ${context.strategicSituation.riskTolerance}; recon ${context.reconAssessment?.summary || 'none'}.`,
+    actionWritingRules: [
+      'Prefer the first feasible recommendedOrders entry for each task card unless a hard constraint blocks it.',
+      'Copy fleetId/contactId/baseId exactly from the task card fields.',
+      'When using launch_search, include searchArcDeg and aircraftCount from the task card.',
+      'Use reconAssessment clouds: do not duplicate active search coverage, and refine stale or low-confidence contact clouds before strike.',
+      'When using move_fleet, include targetPosition and navigationMode from the task card.',
+      'If a recommended strike has no tracked/identified/classified contact, downgrade to launch_search or shadow_contact.',
+    ],
+    taskCards,
+  };
+}
+
+function createCommanderTaskCard(params: {
+  fleet: LLMDecisionContext['ownForces'][number];
+  index: number;
+  context: LLMDecisionContext;
+  searchPlan: ReturnType<typeof generateSearchPlan>;
+  threat: ReturnType<typeof assessThreat>;
+  tracked: LLMDecisionContext['knownContacts'];
+  weak: LLMDecisionContext['knownContacts'];
+}): LLMCommanderBrief['taskCards'][number] {
+  const { fleet, index, context, searchPlan, threat, tracked, weak } = params;
+  const nearestContact = nearestKnownContact(context, fleet.position);
+  const nearestBase = nearestKnownBase(context, fleet.position);
+  const firstSector = searchPlan.sectors[0];
+  const recommendedOrders: LLMCommanderBrief['taskCards'][number]['recommendedOrders'] = [];
+  const avoidActionTypes: LLMCommanderBrief['taskCards'][number]['avoidActionTypes'] = [];
+  const air = fleet.carrierAir;
+  const damaged = fleet.damageSummary !== 'intact' || fleet.readiness === 'limited' || fleet.readiness === 'exhausted' || fleet.readiness === 'repairing';
+  const hasSearchAir = (air?.maxSearchAircraft ?? 0) > 0;
+  const hasStrikeAir = (air?.maxStrikeAircraft ?? 0) > 0;
+  const primaryTracked = tracked[0];
+  const primaryWeak = weak[0];
+  const searchHeading = Math.round(firstSector?.heading ?? 270);
+  const searchWidth = Math.max(30, Math.round(firstSector?.widthDeg ?? 60));
+  const searchRange = Math.max(120, Math.round(firstSector?.range ?? 220));
+  const searchAircraft = Math.min(6, air?.maxSearchAircraft ?? 0);
+
+  if (damaged || threat.overallThreat === 'critical') {
+    recommendedOrders.push({
+      type: 'withdraw_fleet',
+      reason: damaged ? 'Fleet damage or readiness limits offensive action.' : 'Threat is critical; preserve force.',
+      fields: {
+        fleetId: fleet.fleetId,
+        baseId: nearestBase?.baseId,
+        targetPosition: nearestBase?.position,
+        navigationMode: 'withdrawal',
+        formationType: 'circular_screen',
+        durationTurns: 2,
+      },
+    });
+  }
+
+  if (primaryTracked && hasStrikeAir && !damaged) {
+    recommendedOrders.push({
+      type: 'launch_strike',
+      reason: `Contact ${primaryTracked.contactId} is ${primaryTracked.detectionLevel}; strike is legal if aircraft remain ready.`,
+      fields: {
+        fleetId: fleet.fleetId,
+        contactId: primaryTracked.contactId,
+        aircraftCount: Math.min(12, air?.maxStrikeAircraft ?? 0),
+        formationType: 'circular_screen',
+        durationTurns: 1,
+      },
+    });
+  } else if (primaryTracked && !hasStrikeAir) {
+    recommendedOrders.push({
+      type: 'intercept_contact',
+      reason: `Contact ${primaryTracked.contactId} is reliable, but carrier strike aircraft are not available.`,
+      fields: {
+        fleetId: fleet.fleetId,
+        contactId: primaryTracked.contactId,
+        navigationMode: 'combat_approach',
+        formationType: 'line_abreast',
+        durationTurns: 1,
+      },
+    });
+  }
+
+  if ((primaryWeak || !primaryTracked) && hasSearchAir) {
+    recommendedOrders.push({
+      type: 'launch_search',
+      reason: primaryWeak
+        ? `Refine ${primaryWeak.detectionLevel} contact ${primaryWeak.contactId} before strike.`
+        : firstSector?.reason ?? 'No known contact; execute doctrine search pattern.',
+      fields: {
+        fleetId: fleet.fleetId,
+        headingDeg: searchHeading,
+        aircraftCount: searchAircraft,
+        searchArcDeg: { centerDeg: searchHeading, widthDeg: searchWidth, range: searchRange },
+        formationType: 'scout_line',
+        durationTurns: 1,
+      },
+    });
+  }
+
+  if (recommendedOrders.length === 0) {
+    recommendedOrders.push({
+      type: 'hold_position',
+      reason: 'No higher-value legal action is currently available from known information.',
+      fields: {
+        fleetId: fleet.fleetId,
+        formationType: threat.air.level === 'high' ? 'circular_screen' : 'standard_screen',
+        durationTurns: 1,
+      },
+    });
+  }
+
+  if (tracked.length === 0) {
+    avoidActionTypes.push('launch_strike', 'surface_engage', 'launch_torpedo_attack');
+  }
+  if (!hasSearchAir) {
+    avoidActionTypes.push('launch_search', 'launch_cap', 'prepare_strike', 'launch_strike');
+  }
+  if (damaged) {
+    avoidActionTypes.push('launch_strike', 'intercept_contact', 'surface_engage', 'launch_torpedo_attack');
+  }
+
+  return {
+    fleetId: fleet.fleetId,
+    fleetName: fleet.name,
+    priority: damaged ? 1 : index + 2,
+    currentProblem: describeFleetProblem(fleet, tracked.length, weak.length, threat.overallThreat),
+    recommendedOrders: recommendedOrders.slice(0, 3),
+    avoidActionTypes: Array.from(new Set(avoidActionTypes)),
+    resourceLimits: [
+      `readyAircraft:${air?.readyAircraft ?? 0}`,
+      `maxSearch:${air?.maxSearchAircraft ?? 0}`,
+      `maxCap:${air?.maxCapFighters ?? 0}`,
+      `maxStrike:${air?.maxStrikeAircraft ?? 0}`,
+      `routeRisk:${fleet.navigation?.routeRisk ?? 'none'}`,
+      `damage:${fleet.damageSummary}`,
+    ],
+    navigationAdvice: fleet.navigation
+      ? `${fleet.navigation.status}/${fleet.navigation.mode ?? 'direct'} ETA ${fleet.navigation.etaTurns ?? '?'} risk ${fleet.navigation.routeRisk ?? 'unknown'}; ${fleet.navigation.currentLegNote ?? 'continue route'}`
+      : nearestContact
+        ? `If closing ${nearestContact.contactId}, use combat_approach; if preserving carriers, use safe_transit.`
+        : 'No plotted route; search before committing to a deep advance.',
+    airOpsAdvice: hasSearchAir
+      ? `Use searchArcDeg center ${searchHeading}, width ${searchWidth}, range ${searchRange}, aircraft ${searchAircraft}; ${context.reconAssessment?.recommendedSearches[0] || 'avoid duplicating active search coverage'}; launch strike only against tracked/identified/classified contacts.`
+      : 'No ready carrier air allocation for search/strike; use posture, movement, or hold actions.',
+    reviewTrigger: primaryTracked
+      ? `Review after strike result or if contact ${primaryTracked.contactId} is lost.`
+      : primaryWeak
+        ? `Review when ${primaryWeak.contactId} is upgraded or lost.`
+        : 'Review after search returns or next contact report.',
+  };
+}
+
+function describeFleetProblem(
+  fleet: LLMDecisionContext['ownForces'][number],
+  trackedCount: number,
+  weakCount: number,
+  threat: string,
+): string {
+  if (fleet.damageSummary !== 'intact') return `${fleet.name} is ${fleet.damageSummary}; preserve combat power.`;
+  if (trackedCount > 0) return `${fleet.name} has a strike-legal contact and must choose strike, intercept, or containment.`;
+  if (weakCount > 0) return `${fleet.name} has low-confidence contact(s); refine before committing strike.`;
+  if (threat === 'high' || threat === 'critical') return `${fleet.name} faces elevated threat without enough confirmed target data.`;
+  return `${fleet.name} lacks confirmed enemy position; build contact quality.`;
 }
 
 function estimateSearchSuccess(context: LLMDecisionContext, threat: ReturnType<typeof assessThreat>): 'low' | 'medium' | 'high' {
@@ -557,6 +821,51 @@ export function createRealStoreCalls(params: { state: any; faction: 'player' | '
     return result;
   };
 
+  const setOperation = (
+    fleet: StrategicFleet,
+    action: LLMDecisionAction,
+    posture: FleetOperationState['posture'],
+    description: string,
+  ): FleetOperationState => {
+    const operation: FleetOperationState = {
+      posture,
+      startedTurn: currentTurn,
+      durationTurns: action.durationTurns,
+      targetContactId: action.contactId,
+      targetBaseId: action.baseId,
+      targetPosition: action.targetPosition,
+      description,
+      expectedEffect: action.expectedEffect,
+    };
+    fleet.operation = operation;
+    return operation;
+  };
+
+  const plotRoute = (
+    fleet: StrategicFleet,
+    draft: any,
+    target: { x: number; y: number },
+    action: LLMDecisionAction,
+    fallbackMode: FleetNavigationMode,
+  ) => {
+    const mode = action.navigationMode ?? fallbackMode;
+    const speed = action.speedKts ?? inferFleetCruiseSpeed(fleet, mode);
+    const route = buildFleetNavigationRoute(
+      { x: fleet.position.globalX, y: fleet.position.globalY },
+      target,
+      draft.overlay,
+      { mode, desiredSpeedKts: speed },
+    );
+    fleet.targetPosition = { ...route.destination };
+    fleet.navigation = route;
+    const waypoint = route.path[0] ?? route.destination;
+    const heading = bearing(fleet.position.globalX, fleet.position.globalY, waypoint.x, waypoint.y);
+    for (const ship of fleet.ships as any[]) {
+      ship.headingDeg = heading;
+      ship.targetSpeedKts = Math.min(ship.motion?.maxSpeedKts ?? speed, speed);
+    }
+    return { route, heading };
+  };
   return {
     assignMission: (action) => updateFleet(action, (fleet, draft) => {
       const mission = normalizeMission(action.mission || intentToMission(action.reason) || fleet.mission);
@@ -568,16 +877,11 @@ export function createRealStoreCalls(params: { state: any; faction: 'player' | '
 
     moveFleet: (action) => updateFleet(action, (fleet, draft) => {
       if (!action.targetPosition) throw new Error('move_fleet missing targetPosition');
-      const heading = bearing(fleet.position.globalX, fleet.position.globalY, action.targetPosition.x, action.targetPosition.y);
       fleet.mission = action.mission ? normalizeMission(action.mission) : fleet.mission;
-      (fleet as any).targetPosition = { ...action.targetPosition };
+      const { route, heading } = plotRoute(fleet, draft, action.targetPosition, action, action.navigationMode ?? 'safe_transit');
       setFleetCommand(fleet, 'search', orderId(currentTurn, action));
-      for (const ship of fleet.ships) {
-        ship.headingDeg = heading;
-        ship.targetSpeedKts = action.speedKts ?? ship.targetSpeedKts;
-      }
-      addLogAndReport(draft, currentTurn, 'REQUEST_AUTHORIZATION', fleet, action, `Move ordered to (${action.targetPosition.x},${action.targetPosition.y}) heading ${heading}`);
-      return `Move ordered to (${action.targetPosition.x},${action.targetPosition.y})`;
+      addLogAndReport(draft, currentTurn, 'REQUEST_AUTHORIZATION', fleet, action, `Move ordered to (${route.destination.x},${route.destination.y}) heading ${heading}; ETA ${route.etaTurns ?? '?'} risk ${route.routeRisk ?? 'unknown'}`);
+      return `Move ordered to (${route.destination.x},${route.destination.y})`;
     }),
 
     launchSearch: (action) => updateFleet(action, (fleet, draft) => {
@@ -585,24 +889,34 @@ export function createRealStoreCalls(params: { state: any; faction: 'player' | '
       if (!ship?.aircraft) throw new Error(`Fleet ${fleet.name} has no available aircraft for search`);
       const targetArea = resolveSearchArea(action, fleet, draft);
       const centerDeg = action.searchArcDeg?.centerDeg ?? action.headingDeg ?? bearing(fleet.position.globalX, fleet.position.globalY, targetArea.x, targetArea.y);
+      const prepTurns = 1;
       const result = createSearchMission({
         shipId: ship.id,
         airGroup: ship.aircraft,
         targetArea,
+        originPosition: { x: fleet.position.globalX, y: fleet.position.globalY },
         searchArcDeg: {
           centerDeg: normalizeHeading(centerDeg),
           widthDeg: action.searchArcDeg?.widthDeg ?? 120,
           range: action.searchArcDeg?.range ?? targetArea.radius,
         },
         aircraftCount: action.aircraftCount ?? 4,
+        prepTurns,
       });
       ship.aircraft = result.airGroup;
       fleet.airGroupState = result.airGroup.readyAircraft > 0 ? 'recovering' : 'depleted';
       fleet.mission = 'search';
       draft.intel.searchMissions = [...(draft.intel.searchMissions || []), result.mission];
-      addAirOperation(draft, result.mission.id, 'search', targetArea.x, targetArea.y, centerDeg, fleet.name, result.mission.aircraftCount);
-      addLogAndReport(draft, currentTurn, 'AIR_SEARCH_REPORT', fleet, action, `Search launched toward (${targetArea.x},${targetArea.y})`);
-      return `Search launched toward (${targetArea.x},${targetArea.y})`;
+      addAirOperation(draft, result.mission.id, 'search', fleet.position.globalX, fleet.position.globalY, targetArea.x, targetArea.y, centerDeg, fleet.name, result.mission.aircraftCount, {
+        arcWidthDeg: result.mission.searchArcDeg?.widthDeg,
+        range: result.mission.searchArcDeg?.range,
+        missionLabel: `Preparing sector search ${result.mission.searchArcDeg?.widthDeg ?? '?'}deg/${result.mission.searchArcDeg?.range ?? '?'}`,
+        status: 'preparing',
+        prepTurns,
+        readyTurn: currentTurn + prepTurns,
+      });
+      addLogAndReport(draft, currentTurn, 'AIR_SEARCH_REPORT', fleet, action, `Search launched into deck preparation toward (${targetArea.x},${targetArea.y}); airborne in ${prepTurns} turn`);
+      return `Search launched into deck preparation toward (${targetArea.x},${targetArea.y})`;
     }),
 
     launchCap: (action) => updateFleet(action, (fleet, draft) => {
@@ -617,7 +931,7 @@ export function createRealStoreCalls(params: { state: any; faction: 'player' | '
       ship.aircraft = result.airGroup;
       fleet.airGroupState = result.airGroup.readyAircraft > 0 ? 'recovering' : 'depleted';
       draft.intel.searchMissions = [...(draft.intel.searchMissions || []), result.mission];
-      addAirOperation(draft, result.mission.id, 'cap', result.mission.targetArea.x, result.mission.targetArea.y, ship.headingDeg, fleet.name, result.mission.aircraftCount);
+      addAirOperation(draft, result.mission.id, 'cap', fleet.position.globalX, fleet.position.globalY, result.mission.targetArea.x, result.mission.targetArea.y, ship.headingDeg, fleet.name, result.mission.aircraftCount);
       addLogAndReport(draft, currentTurn, 'CAP_REPORT', fleet, action, `CAP launched over (${result.mission.targetArea.x},${result.mission.targetArea.y})`);
       return 'CAP launched';
     }),
@@ -639,7 +953,7 @@ export function createRealStoreCalls(params: { state: any; faction: 'player' | '
       fleet.airGroupState = result.airGroup.readyAircraft > 0 ? 'recovering' : 'depleted';
       fleet.mission = 'carrier_strike';
       draft.intel.searchMissions = [...(draft.intel.searchMissions || []), result.mission];
-      addAirOperation(draft, result.mission.id, 'strike', contact.lastKnownPosition.x, contact.lastKnownPosition.y, bearing(fleet.position.globalX, fleet.position.globalY, contact.lastKnownPosition.x, contact.lastKnownPosition.y), fleet.name, result.mission.aircraftCount);
+      addAirOperation(draft, result.mission.id, 'strike', fleet.position.globalX, fleet.position.globalY, contact.lastKnownPosition.x, contact.lastKnownPosition.y, bearing(fleet.position.globalX, fleet.position.globalY, contact.lastKnownPosition.x, contact.lastKnownPosition.y), fleet.name, result.mission.aircraftCount);
       addLogAndReport(draft, currentTurn, 'STRIKE_REPORT', fleet, action, `Strike launched against contact ${contact.id}`);
       return `Strike launched against ${contact.id}`;
     }),
@@ -647,15 +961,10 @@ export function createRealStoreCalls(params: { state: any; faction: 'player' | '
     withdrawFleet: (action) => updateFleet(action, (fleet, draft) => {
       const target = action.targetPosition || nearestFriendlyBase(draft, faction, fleet) || { x: Math.max(0, fleet.position.globalX - 160), y: fleet.position.globalY };
       fleet.mission = 'withdraw';
-      (fleet as any).targetPosition = target;
       setFleetCommand(fleet, 'withdraw', orderId(currentTurn, action));
-      const heading = bearing(fleet.position.globalX, fleet.position.globalY, target.x, target.y);
-      for (const ship of fleet.ships) {
-        ship.headingDeg = heading;
-        ship.targetSpeedKts = ship.motion?.maxSpeedKts ? Math.round(ship.motion.maxSpeedKts * 0.8) : ship.targetSpeedKts;
-      }
-      addLogAndReport(draft, currentTurn, 'WITHDRAWAL_REPORT', fleet, action, `Withdrawing toward (${target.x},${target.y})`);
-      return `Withdrawing toward (${target.x},${target.y})`;
+      const { route } = plotRoute(fleet, draft, target, action, 'withdrawal');
+      addLogAndReport(draft, currentTurn, 'WITHDRAWAL_REPORT', fleet, action, `Withdrawing toward (${route.destination.x},${route.destination.y}); ETA ${route.etaTurns ?? '?'} risk ${route.routeRisk ?? 'unknown'}`);
+      return `Withdrawing toward (${route.destination.x},${route.destination.y})`;
     }),
 
     holdPosition: (action) => updateFleet(action, (fleet, draft) => {
@@ -726,6 +1035,127 @@ export function createRealStoreCalls(params: { state: any; faction: 'player' | '
       addLogAndReport(draft, currentTurn, 'REQUEST_AUTHORIZATION', fleet, action, `Supporting landing at ${action.baseId}`);
       return `Supporting landing at ${action.baseId}`;
     }),
+    prepareStrike: (action) => updateFleet(action, (fleet, draft) => {
+      const ship = carrierWithAircraft(fleet);
+      if (!ship?.aircraft) throw new Error(`Fleet ${fleet.name} has no carrier air group to prepare`);
+      ship.aircraft.deckCycleState = 'rearming';
+      fleet.airGroupState = 'recovering';
+      fleet.mission = 'carrier_strike';
+      const aircraft = action.aircraftCount ?? Math.min(18, ship.aircraft.readyAircraft);
+      const description = `Strike deck cycle prepared with ${aircraft} aircraft`;
+      setOperation(fleet, action, 'strike_preparation', description);
+      setFleetCommand(fleet, 'strike', orderId(currentTurn, action));
+      addLogAndReport(draft, currentTurn, 'STRIKE_REPORT', fleet, action, description);
+      return description;
+    }),
+
+    recoverAircraft: (action) => updateFleet(action, (fleet, draft) => {
+      const carrier = fleet.ships.find((ship: any) => ship.aircraft);
+      if (!carrier?.aircraft) throw new Error(`Fleet ${fleet.name} has no carrier deck for recovery`);
+      for (const ship of fleet.ships as any[]) {
+        if (ship.aircraft && ship.aircraft.deckCycleState !== 'deck_damaged') ship.aircraft.deckCycleState = 'recovering';
+      }
+      fleet.airGroupState = 'recovering';
+      const description = 'Carrier force recovering aircraft and clearing deck cycle';
+      setOperation(fleet, action, 'aircraft_recovery', description);
+      addLogAndReport(draft, currentTurn, 'CAP_REPORT', fleet, action, description);
+      return description;
+    }),
+
+    vectorCap: (action) => updateFleet(action, (fleet, draft) => {
+      const target = resolveOperationTarget(action, fleet, draft, faction);
+      const description = target
+        ? `CAP fighter direction vector set toward (${target.x},${target.y})`
+        : 'CAP fighter direction set over task force';
+      setOperation(fleet, { ...action, targetPosition: target || action.targetPosition }, 'fighter_direction', description);
+      addLogAndReport(draft, currentTurn, 'CAP_REPORT', fleet, action, description);
+      return description;
+    }),
+
+    laySmoke: (action) => updateFleet(action, (fleet, draft) => {
+      const description = 'Fleet-level smoke screen deployed; visibility and gunnery are reduced while maneuvering';
+      setOperation(fleet, action, 'smoke_screen', description);
+      addLogAndReport(draft, currentTurn, 'SURFACE_ACTION_REPORT', fleet, action, description);
+      return description;
+    }),
+
+    surfaceEngage: (action) => updateFleet(action, (fleet, draft) => {
+      if (!action.contactId) throw new Error('surface_engage missing contactId');
+      const contact = findContact(draft, faction, action.contactId);
+      if (!contact) throw new Error(`Contact ${action.contactId} not found`);
+      const target = contact.lastKnownPosition;
+      fleet.mission = 'intercept';
+      setFleetCommand(fleet, 'intercept', orderId(currentTurn, action));
+      const { route } = plotRoute(fleet, draft, target, action, 'combat_approach');
+      const description = `Surface action ordered against contact ${contact.id}; approach risk ${route.routeRisk ?? 'unknown'} ETA ${route.etaTurns ?? '?'}`;
+      setOperation(fleet, { ...action, targetPosition: target }, 'surface_engagement', description);
+      addLogAndReport(draft, currentTurn, 'SURFACE_ACTION_REPORT', fleet, action, description);
+      return description;
+    }),
+
+    launchTorpedoAttack: (action) => updateFleet(action, (fleet, draft) => {
+      if (!action.contactId) throw new Error('launch_torpedo_attack missing contactId');
+      const contact = findContact(draft, faction, action.contactId);
+      if (!contact) throw new Error(`Contact ${action.contactId} not found`);
+      if (fleet.ammoState === 'good') fleet.ammoState = 'limited';
+      fleet.mission = 'intercept';
+      const target = contact.lastKnownPosition;
+      setFleetCommand(fleet, 'intercept', orderId(currentTurn, action));
+      const { route } = plotRoute(fleet, draft, target, action, 'night_dash');
+      const description = `Fleet-level torpedo attack ordered against contact ${contact.id}; night approach risk ${route.routeRisk ?? 'unknown'} ETA ${route.etaTurns ?? '?'}`;
+      setOperation(fleet, { ...action, targetPosition: target }, 'torpedo_attack', description);
+      addLogAndReport(draft, currentTurn, 'SURFACE_ACTION_REPORT', fleet, action, description);
+      return description;
+    }),
+
+    radioSilence: (action) => updateFleet(action, (fleet, draft) => {
+      const description = 'Radio silence ordered; fleet will limit active transmissions and rely on prearranged orders';
+      setOperation(fleet, action, 'radio_silence', description);
+      addLogAndReport(draft, currentTurn, 'CONTACT_REPORT', fleet, action, description);
+      return description;
+    }),
+
+    bombardAirfield: (action) => updateFleet(action, (fleet, draft) => {
+      const target = resolveOperationTarget(action, fleet, draft, faction);
+      if (fleet.ammoState === 'good') fleet.ammoState = 'limited';
+      fleet.mission = 'raid';
+      if (target) plotRoute(fleet, draft, target, action, 'combat_approach');
+      setFleetCommand(fleet, 'strike', orderId(currentTurn, action));
+      const description = target
+        ? `Shore bombardment posture set toward (${target.x},${target.y})`
+        : `Shore bombardment posture set for ${action.baseId || action.contactId}`;
+      setOperation(fleet, { ...action, targetPosition: target || action.targetPosition }, 'shore_bombardment', description);
+      addLogAndReport(draft, currentTurn, 'SURFACE_ACTION_REPORT', fleet, action, description);
+      return description;
+    }),
+
+    replenishAtSea: (action) => updateFleet(action, (fleet, draft) => {
+      fleet.mission = 'resupply';
+      if (fleet.fuelState !== 'good') fleet.fuelState = 'good';
+      if (fleet.ammoState !== 'good') fleet.ammoState = 'good';
+      fleet.airGroupState = fleet.airGroupState === 'depleted' ? 'recovering' : fleet.airGroupState;
+      const target = resolveOperationTarget(action, fleet, draft, faction);
+      if (target) plotRoute(fleet, draft, target, action, 'rendezvous');
+      const description = target
+        ? `Underway replenishment rendezvous set near (${target.x},${target.y})`
+        : 'Underway replenishment rendezvous set at fleet scale';
+      setOperation(fleet, action, 'underway_replenishment', description);
+      setFleetCommand(fleet, 'withdraw', orderId(currentTurn, action));
+      addLogAndReport(draft, currentTurn, 'REQUEST_AUTHORIZATION', fleet, action, description);
+      return description;
+    }),
+
+    runTransport: (action) => updateFleet(action, (fleet, draft) => {
+      const target = action.targetPosition || basePosition(draft, action.baseId);
+      if (!target) throw new Error('run_transport missing targetPosition or known baseId');
+      fleet.mission = fleet.type === 'amphibious_group' ? 'invasion_support' : 'escort';
+      setFleetCommand(fleet, fleet.type === 'amphibious_group' ? 'support_landing' : 'escort', orderId(currentTurn, action));
+      const { route } = plotRoute(fleet, draft, target, action, 'safe_transit');
+      const description = `Transport run ordered toward (${route.destination.x},${route.destination.y}); ETA ${route.etaTurns ?? '?'} risk ${route.routeRisk ?? 'unknown'}`;
+      setOperation(fleet, { ...action, targetPosition: route.destination }, 'transport_run', description);
+      addLogAndReport(draft, currentTurn, 'REQUEST_AUTHORIZATION', fleet, action, description);
+      return description;
+    }),
   };
 }
 
@@ -764,6 +1194,7 @@ function cloneGameMutationSlice(state: any): any {
     reports: cloneState(state.reports || []),
     battleLog: cloneState(state.battleLog || []),
     airOperations: cloneState(state.airOperations || []),
+    overlay: state.overlay ? cloneState(state.overlay) : undefined,
     facilities: cloneState(state.facilities || []),
     bases: cloneState(state.bases || []),
     supplyLines: cloneState(state.supplyLines || []),
@@ -783,6 +1214,7 @@ function snapshotAIState(state: any): AIStateSnapshot {
       fuelState: fleet.fuelState,
       ammoState: fleet.ammoState,
       repairStatus: (fleet as any).repairStatus,
+      operation: fleet.operation?.posture,
     };
   }
   return {
@@ -812,6 +1244,7 @@ function createStateDiff(params: {
     if (JSON.stringify(beforeFleet.targetPosition) !== JSON.stringify(afterFleet.targetPosition)) changes.push(`${fleetId} target ${JSON.stringify(beforeFleet.targetPosition)} -> ${JSON.stringify(afterFleet.targetPosition)}`);
     if (beforeFleet.aircraftReady !== afterFleet.aircraftReady) changes.push(`${fleetId} aircraftReady ${beforeFleet.aircraftReady} -> ${afterFleet.aircraftReady}`);
     if (beforeFleet.repairStatus !== afterFleet.repairStatus) changes.push(`${fleetId} repair ${beforeFleet.repairStatus || 'none'} -> ${afterFleet.repairStatus || 'none'}`);
+    if (beforeFleet.operation !== afterFleet.operation) changes.push(`${fleetId} operation ${beforeFleet.operation || 'normal'} -> ${afterFleet.operation || 'normal'}`);
   }
   if (before.searchMissionCount !== after.searchMissionCount) changes.push(`searchMissions ${before.searchMissionCount} -> ${after.searchMissionCount}`);
   if (before.airOperationCount !== after.airOperationCount) changes.push(`airOperations ${before.airOperationCount} -> ${after.airOperationCount}`);
@@ -875,16 +1308,48 @@ function addLogAndReport(draft: any, turn: number, reportType: NavalReportType, 
   draft.reports = [...(draft.reports || []), report];
 }
 
-function addAirOperation(draft: any, id: string, type: 'search' | 'strike' | 'cap', x: number, y: number, heading: number, fleetName: string, aircraft: number): void {
+function addAirOperation(
+  draft: any,
+  id: string,
+  type: 'search' | 'strike' | 'cap',
+  originX: number,
+  originY: number,
+  targetX: number,
+  targetY: number,
+  heading: number,
+  fleetName: string,
+  aircraft: number,
+  options: {
+    arcWidthDeg?: number;
+    range?: number;
+    missionLabel?: string;
+    targetContactId?: string;
+    status?: 'preparing' | 'outbound' | 'launched' | 'turning_home' | 'returning' | 'recovered';
+    prepTurns?: number;
+    readyTurn?: number;
+  } = {},
+): void {
   draft.airOperations = [...(draft.airOperations || []), {
     id,
     type,
-    x,
-    y,
+    x: originX,
+    y: originY,
+    originX,
+    originY,
+    targetX,
+    targetY,
     heading: normalizeHeading(heading),
     fleetName,
-    status: 'launched',
+    status: options.status ?? 'outbound',
     aircraft,
+    speed: type === 'cap' ? 12 : 34,
+    arcWidthDeg: options.arcWidthDeg,
+    targetContactId: options.targetContactId,
+    missionLabel: options.missionLabel,
+    range: options.range ?? Math.round(Math.hypot(targetX - originX, targetY - originY)),
+    progress: 0,
+    prepTurns: options.prepTurns,
+    readyTurn: options.readyTurn,
   }];
 }
 
@@ -918,6 +1383,22 @@ function findContact(draft: any, faction: 'player' | 'enemy', contactId: string)
   return (list || []).find((c: any) => c.id === contactId);
 }
 
+function resolveOperationTarget(action: LLMDecisionAction, fleet: StrategicFleet, draft: any, faction: 'player' | 'enemy'): { x: number; y: number } | undefined {
+  if (action.targetPosition) return { ...action.targetPosition };
+  if (action.searchArea) return { x: action.searchArea.x, y: action.searchArea.y };
+  if (action.contactId) {
+    const contact = findContact(draft, faction, action.contactId);
+    if (contact) return { ...contact.lastKnownPosition };
+  }
+  return basePosition(draft, action.baseId) || { x: fleet.position.globalX, y: fleet.position.globalY };
+}
+
+function basePosition(draft: any, baseId?: string): { x: number; y: number } | undefined {
+  if (!baseId) return undefined;
+  const base = (draft.facilities || draft.bases || []).find((b: any) => b.id === baseId || `la_${b.id}` === baseId);
+  if (!base) return undefined;
+  return { x: base.x ?? base.position?.x ?? 0, y: base.y ?? base.position?.y ?? 0 };
+}
 function nearestFriendlyBase(draft: any, faction: 'player' | 'enemy', fleet: StrategicFleet): { x: number; y: number } | undefined {
   const bases = (draft.facilities || draft.bases || []).filter((b: any) => b.faction === faction || b.owner === faction);
   if (bases.length === 0) return undefined;
@@ -927,6 +1408,18 @@ function nearestFriendlyBase(draft: any, faction: 'player' | 'enemy', fleet: Str
     return currentDist < bestDist ? current : best;
   });
   return { x: base.x ?? 0, y: base.y ?? 0 };
+}
+
+function inferFleetCruiseSpeed(fleet: StrategicFleet, mode: FleetNavigationMode): number {
+  const slowest = fleet.ships.length > 0
+    ? Math.min(...fleet.ships.map((ship: any) => ship.motion?.maxSpeedKts ?? ship.targetSpeedKts ?? 18))
+    : 18;
+  if (mode === 'night_dash') return Math.max(18, Math.round(slowest * 0.95));
+  if (mode === 'combat_approach') return Math.max(14, Math.round(slowest * 0.82));
+  if (mode === 'withdrawal') return Math.max(10, Math.round(slowest * 0.78));
+  if (mode === 'rendezvous') return Math.min(18, Math.max(10, Math.round(slowest * 0.72)));
+  if (mode === 'safe_transit') return Math.min(22, Math.max(12, Math.round(slowest * 0.72)));
+  return Math.min(26, Math.max(12, Math.round(slowest * 0.8)));
 }
 
 function normalizeMission(value: string): NavalFleetMission {

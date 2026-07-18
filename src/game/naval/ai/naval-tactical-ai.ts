@@ -84,12 +84,11 @@ function handleCarrierTactics(
 
     if (dist < 25 && contact.contactType === 'surface_ship') {
       // 转向远离
-      const awayAngle = ((Math.atan2(-dy, -dx) * 180 / Math.PI) + 360) % 360;
       actions.push({
         id: nextId(),
         shipId: ship.id,
         type: 'change_course',
-        headingDeg: awayAngle,
+        headingDeg: bearingTo(ship.position.x, ship.position.y, ship.position.x - dx, ship.position.y - dy),
         targetSpeedKts: 30,
         reason: 'Enemy surface contact too close - carrier turning away',
         basedOnContactIds: [contact.id],
@@ -116,12 +115,11 @@ function handleScreenTactics(
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist < 15) {
-      const approachAngle = ((Math.atan2(dy, dx) * 180 / Math.PI) + 360) % 360;
       actions.push({
         id: nextId(),
         shipId: ship.id,
         type: 'change_course',
-        headingDeg: approachAngle,
+        headingDeg: bearingTo(ship.position.x, ship.position.y, contact.lastKnownPosition.x, contact.lastKnownPosition.y),
         targetSpeedKts: ship.motion.maxSpeedKts,
         reason: 'Screening - engaging enemy approaching carrier',
         basedOnContactIds: [contact.id],
@@ -152,12 +150,11 @@ function handleSurfaceCombatantTactics(
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist > 20) {
-        const angle = ((Math.atan2(dy, dx) * 180 / Math.PI) + 360) % 360;
         actions.push({
           id: nextId(),
           shipId: ship.id,
           type: 'change_course',
-          headingDeg: angle,
+          headingDeg: bearingTo(ship.position.x, ship.position.y, closest.lastKnownPosition.x, closest.lastKnownPosition.y),
           targetSpeedKts: ship.motion.maxSpeedKts,
           reason: 'Closing to gun range',
           basedOnContactIds: [closest.id],
@@ -278,4 +275,8 @@ function findClosestContact(
     if (dist < minDist) { minDist = dist; closest = c; }
   }
   return closest;
+}
+
+function bearingTo(fromX: number, fromY: number, toX: number, toY: number): number {
+  return Math.round(((Math.atan2(toX - fromX, fromY - toY) * 180 / Math.PI) % 360 + 360) % 360);
 }

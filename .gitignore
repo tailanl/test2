@@ -4,3 +4,9 @@ dist
 .DS_Store
 artifacts/test-runs/
 artifacts/web-smoke/
+config/qq-bridge.local.json
+artifacts/qq-mock/
+.understand-anything/
+artifacts/multiplayer/
+artifacts/visual/
+artifacts/*.log

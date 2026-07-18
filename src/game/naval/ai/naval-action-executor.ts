@@ -93,13 +93,18 @@ export function executeNavalAIActions(params: {
               const targetArea = action.targetPosition
                 ? { x: action.targetPosition.x, y: action.targetPosition.y, radius: 40 }
                 : { x: ship.position.x, y: ship.position.y, radius: 40 };
+              const centerDeg = action.headingDeg ?? (action.targetPosition
+                ? bearingTo(ship.position.x, ship.position.y, action.targetPosition.x, action.targetPosition.y)
+                : ship.headingDeg);
               try {
                 const result = createSearchMission({
                   shipId: ship.id,
                   airGroup: ship.aircraft,
                   targetArea,
-                  searchArcDeg: { centerDeg: ship.headingDeg, widthDeg: 120, range: 40 },
+                  originPosition: { x: ship.position.x, y: ship.position.y },
+                  searchArcDeg: { centerDeg, widthDeg: 120, range: 40 },
                   aircraftCount: 4,
+                  prepTurns: 1,
                 });
                 shipMap[ship.id] = { ...ship, aircraft: result.airGroup };
                 newSearchMissions.push(result.mission);
@@ -144,7 +149,7 @@ export function executeNavalAIActions(params: {
 
         case 'launch_strike':
           for (const ship of targetShips) {
-            const contact = intel.playerContacts.find((c) => c.id === action.targetContactId);
+            const contact = findActionContact(action, ship, fleets, intel);
             if (ship.aircraft && ship.aircraft.deckCycleState === 'ready' && ship.aircraft.readyAircraft >= 8 && contact) {
               if (contact.detectionLevel === 'classified' || contact.detectionLevel === 'identified' || contact.detectionLevel === 'tracked') {
                 try {
@@ -179,7 +184,7 @@ export function executeNavalAIActions(params: {
 
         case 'fire_main_guns':
           for (const ship of targetShips) {
-            const contact = intel.playerContacts.find((c) => c.id === action.targetContactId);
+            const contact = findActionContact(action, ship, fleets, intel);
             if (contact && (contact.detectionLevel === 'classified' || contact.detectionLevel === 'identified' || contact.detectionLevel === 'tracked')) {
               const weapon = ship.weapons.find((w) => w.type === 'main_gun' && w.ammo > 0 && w.cooldown <= 0);
               if (weapon) {
@@ -201,7 +206,7 @@ export function executeNavalAIActions(params: {
 
         case 'fire_torpedoes':
           for (const ship of targetShips) {
-            const contact = intel.playerContacts.find((c) => c.id === action.targetContactId);
+            const contact = findActionContact(action, ship, fleets, intel);
             if (contact && contact.detectionLevel !== 'none' && contact.detectionLevel !== 'suspected') {
               const weapon = ship.weapons.find((w) => w.type === 'torpedo' && w.ammo > 0 && w.cooldown <= 0);
               if (weapon) {
@@ -289,4 +294,22 @@ export function executeNavalAIActions(params: {
   }
 
   return { shipMap, updatedSearchMissions: newSearchMissions, events };
+}
+
+function findActionContact(
+  action: NavalAIAction,
+  ship: NavalShip,
+  fleets: StrategicFleet[],
+  intel: NavalIntelState,
+) {
+  if (!action.targetContactId) return undefined;
+  const faction = action.fleetId
+    ? fleets.find((fleet) => fleet.id === action.fleetId)?.faction
+    : fleets.find((fleet) => fleet.ships.some((item) => item.id === ship.id))?.faction ?? ship.faction;
+  const contacts = faction === 'enemy' ? intel.enemyContacts : intel.playerContacts;
+  return contacts.find((contact) => contact.id === action.targetContactId);
+}
+
+function bearingTo(fromX: number, fromY: number, toX: number, toY: number): number {
+  return Math.round(((Math.atan2(toX - fromX, fromY - toY) * 180 / Math.PI) % 360 + 360) % 360);
 }

@@ -49,6 +49,9 @@ export function buildFactionKnowledge(params: {
       damagedShipCount: f.ships.filter(s => s.damage.status !== 'combat_effective').length,
       carrierAir,
       combatProfile,
+      operation: f.operation,
+      navigation: f.navigation,
+      automation: f.command?.automation,
       ships: f.ships.map(s => ({
         shipId: s.id, name: s.name, shipClass: s.shipClass,
         position: { x: s.position.x, y: s.position.y },
@@ -134,6 +137,35 @@ export function sanitizeKnowledgeForLLM(knowledge: FactionKnowledgeState, phase?
         readiness: f.combatProfile.readiness,
         firepower: f.combatProfile.firepower,
         modules: f.combatProfile.modules,
+      } : undefined,
+      operation: f.operation ? {
+        posture: f.operation.posture,
+        startedTurn: f.operation.startedTurn,
+        durationTurns: f.operation.durationTurns,
+        targetContactId: f.operation.targetContactId,
+        targetBaseId: f.operation.targetBaseId,
+        targetPosition: f.operation.targetPosition,
+        description: f.operation.description,
+        expectedEffect: f.operation.expectedEffect,
+      } : undefined,
+      navigation: f.navigation ? {
+        status: f.navigation.status,
+        mode: f.navigation.mode,
+        routeSource: f.navigation.routeSource,
+        destination: f.navigation.destination,
+        manualWaypoints: f.navigation.manualWaypoints,
+        nextWaypoint: f.navigation.path[f.navigation.pathIndex],
+        etaTurns: f.navigation.etaTurns,
+        totalDistance: f.navigation.totalDistance,
+        routeRisk: f.navigation.routeRisk,
+        riskScore: f.navigation.riskScore,
+        currentLegNote: f.navigation.currentLegNote,
+        remainingWaypoints: Math.max(0, f.navigation.path.length - f.navigation.pathIndex),
+      } : undefined,
+      automation: f.automation ? {
+        priorities: f.automation.priorities,
+        lastTask: f.automation.lastTask,
+        lastTaskTurn: f.automation.lastTaskTurn,
       } : undefined,
     })),
     knownContacts: knowledge.knownContacts.map(c => ({
@@ -231,8 +263,18 @@ function generateLegalActionHints(knowledge: FactionKnowledgeState): string[] {
 
   hints.push('launch_search');
   hints.push('hold_position');
+  hints.push('radio_silence');
+  hints.push('lay_smoke');
   if (hasSuspected) { hints.push('shadow_contact'); hints.push('launch_search_toward_contact'); }
-  if (hasTracked) { hints.push('launch_strike'); hints.push('intercept_contact'); }
+  const hasCarrierAir = knowledge.knownOwnFleets.some(f => (f.carrierAir?.readyAircraft ?? 0) > 0);
+  const hasSurfaceFire = knowledge.knownOwnFleets.some(f => (f.combatProfile?.firepower.antiSurface ?? 0) > 0);
+  const hasTorpedoes = knowledge.knownOwnFleets.some(f => (f.combatProfile?.firepower.torpedo ?? 0) > 0);
+  const hasTransport = knowledge.knownOwnFleets.some(f => f.type === 'transport_convoy' || f.type === 'amphibious_group' || f.type === 'supply_group');
+  if (hasCarrierAir) { hints.push('prepare_strike'); hints.push('recover_aircraft'); hints.push('vector_cap'); }
+  if (hasTracked) { hints.push('launch_strike'); hints.push('intercept_contact'); hints.push('surface_engage'); }
+  if (hasTracked && hasTorpedoes) hints.push('launch_torpedo_attack');
+  if (hasSurfaceFire) hints.push('bombard_airfield');
+  if (hasTransport) { hints.push('run_transport'); hints.push('replenish_at_sea'); }
   if (hasDamaged) { hints.push('repair_fleet'); hints.push('withdraw_fleet'); }
   hints.push('protect_supply_line');
   return hints;

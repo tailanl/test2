@@ -9,8 +9,15 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && node tests/run-regression.mjs",
+    "test:qq-bridge": "node tests/qq-bridge-smoke.mjs",
+    "test:bilateral-objective": "npx esbuild tests/bilateral-objective-sim.ts --bundle --platform=node --format=esm --outfile=dist/bilateral-objective-sim.mjs && node dist/bilateral-objective-sim.mjs",
     "test:diagnose": "node scripts/build-diagnostics.mjs",
-    "test:web-smoke": "node tests/web-smoke.mjs"
+    "test:web-smoke": "node tests/web-smoke.mjs",
+    "test:multiplayer-sync": "node tests/multiplayer-server-smoke.mjs",
+    "qq:mock": "node scripts/onebot-mock-server.mjs",
+    "qq:check": "node scripts/qq-bridge-check.mjs",
+    "multiplayer:qq": "node scripts/multiplayer-server.mjs --config config/qq-bridge.local.json",
+    "multiplayer:server": "node scripts/multiplayer-server.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

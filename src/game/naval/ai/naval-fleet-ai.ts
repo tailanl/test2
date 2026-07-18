@@ -17,12 +17,14 @@ function nextActionId(): string {
 // ===== 舰队 AI 决策 =====
 
 export function generateFleetAIActions(input: NavalAIInput): NavalAIAction[] {
-  const { friendlyFleets, friendlyShips, contacts, intel, environment } = input;
+  const { friendlyFleets, contacts } = input;
   const actions: NavalAIAction[] = [];
 
   for (const fleet of friendlyFleets) {
     const fleetShips = fleet.ships;
     if (fleetShips.length === 0) continue;
+    const intent = fleet.command?.commanderIntent ?? input.mission.commanderIntent;
+    const decisive = intent === 'seek_decisive_battle' || intent === 'destroy_enemy_carriers';
 
     // 找出该舰队能探测到的敌方 contacts
     const relevantContacts = contacts.filter((c) => {
@@ -38,10 +40,10 @@ export function generateFleetAIActions(input: NavalAIInput): NavalAIAction[] {
 
     switch (fleet.type) {
       case 'carrier_task_force':
-        actions.push(...handleCarrierTaskForce(fleet, fleetShips, relevantContacts, fleetCenter));
+        actions.push(...handleCarrierTaskForce(fleet, fleetShips, relevantContacts, fleetCenter, decisive));
         break;
       case 'surface_action_group':
-        actions.push(...handleSurfaceActionGroup(fleet, fleetShips, relevantContacts, fleetCenter));
+        actions.push(...handleSurfaceActionGroup(fleet, fleetShips, relevantContacts, fleetCenter, decisive));
         break;
       case 'transport_convoy':
       case 'supply_group':
@@ -53,7 +55,7 @@ export function generateFleetAIActions(input: NavalAIInput): NavalAIAction[] {
       default:
         // 默认搜索
         if (relevantContacts.length === 0) {
-          actions.push(...generateSearchActions(fleet, fleetShips, fleetCenter));
+          actions.push(...generateSearchActions(fleet, fleetShips, fleetCenter, decisive));
         }
         break;
     }
@@ -68,7 +70,8 @@ function handleCarrierTaskForce(
   fleet: StrategicFleet,
   ships: NavalShip[],
   contacts: NavAIActionReference[],
-  center: { x: number; y: number }
+  center: { x: number; y: number },
+  decisive: boolean
 ): NavalAIAction[] {
   const actions: NavalAIAction[] = [];
   const carriers = ships.filter((s) => s.shipClass.includes('carrier'));
@@ -82,7 +85,11 @@ function handleCarrierTaskForce(
           fleetId: fleet.id,
           shipId: carrier.id,
           type: 'launch_search',
-          reason: 'No enemy contacts - launching search aircraft',
+          targetPosition: (fleet as any).targetPosition,
+          headingDeg: (fleet as any).targetPosition
+            ? bearingTo(center.x, center.y, (fleet as any).targetPosition.x, (fleet as any).targetPosition.y)
+            : undefined,
+          reason: decisive ? 'Seeking decisive battle - launching battle search' : 'No enemy contacts - launching search aircraft',
           basedOnContactIds: [],
         });
       }
@@ -162,7 +169,8 @@ function handleSurfaceActionGroup(
   fleet: StrategicFleet,
   ships: NavalShip[],
   contacts: NavAIActionReference[],
-  center: { x: number; y: number }
+  center: { x: number; y: number },
+  decisive: boolean
 ): NavalAIAction[] {
   const actions: NavalAIAction[] = [];
 
@@ -180,16 +188,12 @@ function handleSurfaceActionGroup(
 
       // 接近到炮战距离
       if (dist > 20) {
-        const angle = Math.atan2(
-          closest.lastKnownPosition.y - center.y,
-          closest.lastKnownPosition.x - center.x
-        ) * (180 / Math.PI);
         actions.push({
           id: nextActionId(),
           fleetId: fleet.id,
           type: 'change_course',
-          headingDeg: ((angle % 360) + 360) % 360,
-          targetSpeedKts: 28,
+          headingDeg: bearingTo(center.x, center.y, closest.lastKnownPosition.x, closest.lastKnownPosition.y),
+          targetSpeedKts: decisive ? 30 : 28,
           reason: `Approaching tracked contact for surface engagement`,
           basedOnContactIds: [closest.id],
         });
@@ -227,7 +231,7 @@ function handleSurfaceActionGroup(
     }
   } else {
     // 搜索
-    actions.push(...generateSearchActions(fleet, ships, center));
+    actions.push(...generateSearchActions(fleet, ships, center, decisive));
   }
 
   return actions;
@@ -239,9 +243,11 @@ function handleTransportConvoy(
   fleet: StrategicFleet,
   _ships: NavalShip[],
   contacts: NavAIActionReference[],
-  center: { x: number; y: number }
+  center: { x: number; y: number },
+  decisive = false
 ): NavalAIAction[] {
   const actions: NavalAIAction[] = [];
+  const assignedTarget = (fleet as any).targetPosition as { x: number; y: number } | undefined;
 
   if (contacts.length > 0) {
     const closest = findClosestContact(center, contacts);
@@ -317,9 +323,11 @@ function handleSubmarineGroup(
 function generateSearchActions(
   fleet: StrategicFleet,
   ships: NavalShip[],
-  center: { x: number; y: number }
+  center: { x: number; y: number },
+  decisive = false
 ): NavalAIAction[] {
   const actions: NavalAIAction[] = [];
+  const assignedTarget = (fleet as any).targetPosition as { x: number; y: number } | undefined;
 
   for (const ship of ships) {
     if (ship.shipClass.includes('carrier') && ship.aircraft && ship.aircraft.deckCycleState === 'ready') {
@@ -328,7 +336,9 @@ function generateSearchActions(
         fleetId: fleet.id,
         shipId: ship.id,
         type: 'launch_search',
-        reason: 'Routine search patrol',
+        targetPosition: assignedTarget,
+        headingDeg: assignedTarget ? bearingTo(center.x, center.y, assignedTarget.x, assignedTarget.y) : undefined,
+        reason: decisive ? 'Seeking decisive battle - launching battle search' : 'Routine search patrol',
         basedOnContactIds: [],
       });
     }
@@ -339,9 +349,12 @@ function generateSearchActions(
     actions.push({
       id: nextActionId(),
       fleetId: fleet.id,
-      type: 'change_speed',
-      targetSpeedKts: 18,
-      reason: 'Cruising speed for search patrol',
+      type: assignedTarget ? 'change_course' : 'change_speed',
+      headingDeg: assignedTarget ? bearingTo(center.x, center.y, assignedTarget.x, assignedTarget.y) : undefined,
+      targetSpeedKts: assignedTarget ? (decisive ? 28 : 18) : (decisive ? 24 : 18),
+      reason: assignedTarget
+        ? (decisive ? 'Seeking decisive battle toward assigned sea area' : 'Searching toward assigned sea area')
+        : (decisive ? 'Battle search speed while seeking decisive engagement' : 'Cruising speed for search patrol'),
       basedOnContactIds: [],
     });
   }
@@ -379,4 +392,8 @@ function findClosestContact(
   }
 
   return closest;
+}
+
+function bearingTo(fromX: number, fromY: number, toX: number, toY: number): number {
+  return Math.round(((Math.atan2(toX - fromX, fromY - toY) * 180 / Math.PI) % 360 + 360) % 360);
 }
