@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Training-only completion and exact-SDF objectives for body pose guidance."""
+"""Terminal-pose and SDF-compatible reductions for body pose guidance."""
 
 from __future__ import annotations
 
@@ -267,7 +267,7 @@ def penetration_cvar_loss(
     tail_fraction: float = 0.02,
     min_points: int = 8,
 ) -> Tensor:
-    """Mean per-sample CVaR of exact-SDF penetration depth in metres."""
+    """Mean per-sample CVaR of host-supplied SDF penetration in metres."""
 
     if signed_distance.ndim < 2:
         raise ValueError("signed_distance must have a batch dimension")

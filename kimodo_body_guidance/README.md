@@ -1,37 +1,55 @@
-# Joint-wise body pose guidance
+# Kimodo scene-guidance core primitives
 
-This directory contains the reusable core of the current validated body-pose
-guidance configuration.  It refines Kimodo's four semantic key poses with 88
-event/joint tokens while preserving the supplied root trajectory exactly.
+This directory is a deliberately small, reviewable package extracted from the
+larger local experiment tree. It contains three independent pieces:
 
-## Current selection
+- `root_feedback`: strict no-oracle sparse planner/replanner prototypes;
+- `interaction_guidance`: IntentMotion-style contact memory and a zero-init
+  ReMoGen-style MIM primitive;
+- `body_pose_guidance`: joint/event residual pose refinement and
+  SDF-compatible reductions.
 
-The selected configuration is `JointWiseBodyPoseRefiner` with action-weighted
-completion supervision, a frozen-base ranking loss, and exact-SDF body-proxy
-supervision.  On the current one-scene micro holdout it produced:
+It is not an end-to-end Kimodo integration: the package does not install Body
+layer hooks, propagate key poses into continuous motion, query a scene SDF, or
+run the official Kimodo sampler. Those remain explicit host responsibilities.
+The next-version contract and the audited nine-root loop table are in `docs/`
+and `reports/`.
+
+## Body pose primitive
+
+The Body module refines four host-provided semantic key poses with 88
+event/joint tokens. It does not return a Root trajectory.
+
+## Micro-holdout structure screen
+
+The tested configuration is `JointWiseBodyPoseRefiner` with action-weighted
+terminal-pose reconstruction, a frozen-base ranking loss, and externally
+queried signed-distance supervision. On one scene micro holdout it produced:
 
 | Metric | Frozen base | Refined | Gain |
 |---|---:|---:|---:|
-| action-weighted completion FK | 0.174546 m | 0.173924 m | +0.000623 m |
+| action-weighted terminal-pose FK | 0.174546 m | 0.173924 m | +0.000623 m |
 | event-pose penetration CVaR | 0.019603 m | 0.003146 m | +0.016457 m |
 
-These numbers are a structure screen, not a full-dataset generalization claim.
+These numbers are a structure screen, not task-success evidence or a
+full-dataset generalization claim.
 The experimental joint-local `space_goal_v2` was not promoted: although its
 generic pose FK was slightly lower, its action-weighted completion FK regressed
 by 0.000528 m relative to the frozen base on the same holdout.
 
 ## Architecture
 
-The model receives only inference-time tensors:
+The model receives host-provided inference-time tensors:
 
 - base event tokens and base local 6D rotations;
 - proposal features and immutable external root features softly pooled at the
   four predicted event times;
 - projected scene and text embeddings with valid masks.
 
-It emits local-rotation and pelvis-world-Y residuals.  Both residual heads are
-zero initialized, so enabling a fresh module leaves the frozen Kimodo output
-bit-exact.  It never emits root translation or heading.
+It emits local-rotation and pelvis-world-Y residuals. Both residual heads are
+zero initialized, so a fresh module is an identity on those outputs. It never
+emits root translation or heading, but the host must still enforce ownership
+of Root channels and decide whether pelvis-Y may affect Root height.
 
 ```python
 from kimodo_sceneco.body_pose_guidance import (
@@ -62,27 +80,33 @@ result = refiner(
 )
 ```
 
-The callable input list is audited at import time.  Adding target, label,
+The callable input list is audited at import time. Adding target, label,
 donor, oracle, GT, or full-path arguments fails closed.
+
+The package does not construct the event tokens, time distribution, projected
+scene/text features, FK joints, or signed-distance samples shown above. Those
+are explicit host integration contracts.
 
 ## Training objectives
 
 `objectives.py` provides three independent loss components:
 
-1. `action_weighted_completion_loss`: final-event FK and local-rotation loss;
+1. `action_weighted_completion_loss`: action-weighted GT terminal-pose FK and
+   local-rotation reconstruction (the historical function name is retained);
 2. `completion_rank_loss`: requires the refined final pose to beat the frozen
    base by a configurable margin;
-3. `event_space_loss`: mean penetration plus CVaR over an exact-SDF 85-point
-   SMPL-X-22 body proxy.
+3. `event_space_loss`: mean penetration plus CVaR over host-supplied signed
+   distances for an 85-point SMPL-X-22 body proxy.
 
-SDF and target tensors are constructed only after model inference.  They are
-loss/evaluation inputs and must never enter the refiner.  The tested short-run
-weights were completion `3.0`, completion rank `1.0`, and event space `2.0`.
-FP32 is currently required for the formal refiner training path; the audited
-AMP smoke produced a non-finite gradient at step zero.
+This package builds the proxy points and reductions; it does not implement the
+scene SDF query, world-FK transform, or continuous-motion collision check. SDF
+and target tensors are constructed only after inference and must never enter
+the refiner. The tested short-run weights were reconstruction `3.0`, rank
+`1.0`, and event space `2.0`. FP32 is currently required by the audited path;
+the AMP smoke produced a non-finite gradient at step zero.
 
 Run the standalone tests with:
 
 ```bash
-python -m pytest -q tests/test_body_pose_guidance.py
+python -m pytest -q
 ```

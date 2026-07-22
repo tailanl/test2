@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Audited joint-wise residual pose guidance used by the current body winner.
+"""Host-agnostic joint-wise residual pose-guidance primitive.
 
-The module never predicts or replaces Kimodo's root.  It refines four semantic
+The module does not return a Root trajectory. It refines four semantic
 SMPL-X-22 event poses from inference-time conditions only and is an exact
-identity before training because both residual heads are zero initialized.
+identity on its pose/pelvis outputs before training because both residual heads
+are zero initialized. Root-channel ownership remains a host responsibility.
 """
 
 from __future__ import annotations
@@ -121,12 +122,13 @@ class _FusionBlock(nn.Module):
 
 
 class JointWiseBodyPoseRefiner(nn.Module):
-    """Refine four SMPL-X-22 event poses while preserving root0:5 exactly.
+    """Refine four host-provided SMPL-X-22 event poses.
 
     Each event/joint pair owns one token, giving 88 tokens.  The callable API
     deliberately contains no target pose, target event, donor, oracle, full
     route, contact label, or SDF label.  Scene and text must already be
-    projected to ``hidden_size`` by the host model.
+    projected to ``hidden_size`` by the host model. The module never writes a
+    Root tensor, but an integration must separately enforce Root ownership.
     """
 
     def __init__(

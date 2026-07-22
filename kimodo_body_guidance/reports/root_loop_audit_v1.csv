@@ -1,0 +1,10 @@
+sample_id,action,path_length_m,start_end_direct_m,length_direct_ratio,absolute_backtrack_m,away_frames,total_turn_deg,curvature_rad_per_m,classification
+seg_03356,get_up,0.5868,0.0618,9.49,0.2540,67,88.2,2.62,true_out_and_return
+seg_00552,drink,0.5169,0.1023,5.05,0.1708,43,112.8,3.81,true_out_and_return
+seg_04379,pick_guitar,0.5154,0.1020,5.05,0.1531,51,34.8,1.18,true_out_and_return
+seg_01899,pick_bottle,0.5500,0.3058,1.80,0.1106,29,84.4,2.68,true_out_and_return
+seg_04485,pick_book,0.7856,0.5092,1.54,0.0000,0,156.6,3.48,curved_but_monotonic
+seg_01886,stand_up,0.8005,0.6744,1.19,0.0000,0,81.2,1.77,monotonic
+seg_05349,sit,0.7422,0.6708,1.11,0.0000,0,111.5,2.62,monotonic
+seg_05338,stand_up,0.5804,0.5609,1.03,0.0000,0,49.7,1.49,monotonic
+seg_05351,stand_up,0.6887,0.6679,1.03,0.0000,0,80.1,2.03,monotonic
